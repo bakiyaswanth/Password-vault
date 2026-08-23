@@ -15,13 +15,15 @@ export const RecoveryPhraseModal: React.FC<{
   const words = phrase.split(' ');
 
   const handleDownload = () => {
+    const file = new Blob([phrase], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(file);
     const element = document.createElement('a');
-    const file = new Blob([phrase], { type: 'text/plain' });
-    element.href = URL.createObjectURL(file);
-    element.download = 'aegisvault-emergency-recovery-key.txt';
+    element.href = url;
+    element.download = 'surakshit-vault-emergency-recovery-key.txt';
     document.body.appendChild(element);
     element.click();
     document.body.removeChild(element);
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -38,7 +40,7 @@ export const RecoveryPhraseModal: React.FC<{
         <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-300">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>
-            AegisVault has no backdoor. If you lose both your master password and this recovery phrase, your encrypted data cannot be decrypted by anyone.
+            Surakshit Vault has no backdoor. If you lose both your master password and this recovery phrase, your encrypted data cannot be decrypted by anyone.
           </span>
         </div>
 

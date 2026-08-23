@@ -1,6 +1,6 @@
 /**
- * AegisVault Security Headers Middleware
- * Enforces strict Content Security Policy, HSTS, XSS protection, framing prevention, and referrer policies.
+ * Surakshit Vault Security Headers Middleware
+ * Enforces Content Security Policy, HSTS, XSS protection, framing prevention, and referrer policies.
  */
 
 import type { MiddlewareHandler } from 'hono';
@@ -15,6 +15,6 @@ export const securityHeaders: MiddlewareHandler = async (c, next) => {
   c.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   c.header(
     'Content-Security-Policy',
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self';"
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob: https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https: wss:; worker-src 'self' blob:; child-src 'self' blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'self';"
   );
 };

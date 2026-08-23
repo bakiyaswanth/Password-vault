@@ -1,9 +1,10 @@
 /**
- * AegisVault Rate Limiting Middleware
- * Implements sliding window rate limiting via D1 and in-memory fallback.
+ * Surakshit Vault Rate Limiting Middleware
+ * Implements sliding window rate limiting via Cloudflare D1.
  */
 
 import type { MiddlewareHandler } from 'hono';
+import { AppError } from '../errors/AppError';
 import type { Env } from '../types';
 
 export function rateLimiter(options: {
@@ -30,13 +31,7 @@ export function rateLimiter(options: {
         if (record.count >= options.maxRequests) {
           const retryAfter = Math.ceil((record.reset_at - now) / 1000);
           c.header('Retry-After', retryAfter.toString());
-          return c.json(
-            {
-              error: 'Too Many Requests',
-              message: 'Rate limit exceeded. Please try again later.',
-            },
-            429
-          );
+          throw AppError.rateLimited('Rate limit exceeded. Please try again later.');
         }
 
         await c.env.DB.prepare(
@@ -53,7 +48,8 @@ export function rateLimiter(options: {
           .bind(rateKey, resetAt)
           .run();
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof AppError) throw err;
       // In local testing or fallback, allow request to proceed if table check is bypassed
     }
 

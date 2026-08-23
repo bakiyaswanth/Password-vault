@@ -1,6 +1,6 @@
 /**
  * Surakshit Vault CORS Middleware
- * Allows Cloudflare Pages, configured origins, and local development
+ * Allows Cloudflare Pages, configured origin, and local development securely.
  */
 
 import type { MiddlewareHandler } from 'hono';
@@ -12,8 +12,7 @@ export const corsMiddleware: MiddlewareHandler<{ Bindings: Env }> = async (c, ne
 
   const isAllowed =
     !origin || // Same-origin request
-    configuredOrigin === '*' ||
-    origin === configuredOrigin ||
+    (configuredOrigin && configuredOrigin !== '*' && origin === configuredOrigin) ||
     origin.endsWith('.pages.dev') ||
     origin.startsWith('http://localhost:') ||
     origin.startsWith('http://127.0.0.1:');

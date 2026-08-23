@@ -68,14 +68,16 @@ export const ExportModal: React.FC<ExportModalProps> = ({ isOpen, onClose }) => 
         filename += '-protonpass.json';
       }
 
-      // Trigger file download in browser
-      const blob = new Blob([content], { type: mimeType });
+      // Trigger file download in browser with proper revoke
+      const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+      const url = URL.createObjectURL(blob);
       const element = document.createElement('a');
-      element.href = URL.createObjectURL(blob);
+      element.href = url;
       element.download = filename;
       document.body.appendChild(element);
       element.click();
       document.body.removeChild(element);
+      URL.revokeObjectURL(url);
 
       setIsSuccess(true);
       setBackupPassword('');
