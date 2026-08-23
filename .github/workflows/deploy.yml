@@ -63,8 +63,11 @@ jobs:
           if [ -n "$CLOUDFLARE_D1_DATABASE_ID" ]; then
             echo "Injecting Cloudflare D1 Database UUID into wrangler.toml..."
             sed -i "s/D1_DATABASE_ID_PLACEHOLDER/$CLOUDFLARE_D1_DATABASE_ID/g" wrangler.toml
-          else
-            echo "::warning ::CLOUDFLARE_D1_DATABASE_ID secret is not set. Please add it to GitHub Secrets."
+          fi
+
+          if grep -q "D1_DATABASE_ID_PLACEHOLDER" wrangler.toml; then
+            echo "::error ::D1 Database UUID is missing! Please paste your real D1 UUID into wrangler.toml (database_id = \"your-uuid\") OR add CLOUDFLARE_D1_DATABASE_ID to GitHub Repository Secrets."
+            exit 1
           fi
 
       - name: Build Frontend Production Bundle
