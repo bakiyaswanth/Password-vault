@@ -10,5 +10,5 @@ CORS_ORIGIN = "*"
 [[d1_databases]]
 binding = "DB"
 database_name = "surakshit-vault-db"
-database_id = "surakshit-vault-db-id"
+database_id = "D1_DATABASE_ID_PLACEHOLDER"
 migrations_dir = "migrations"
