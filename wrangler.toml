@@ -1,5 +1,5 @@
-name = "surakshit-vault-api"
-main = "worker/index.ts"
+name = "surakshit-vault"
+pages_build_output_dir = "dist"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
