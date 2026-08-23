@@ -1,0 +1,17 @@
+name = "aegisvault-api"
+main = "worker/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+CORS_ORIGIN = "https://aegisvault.pages.dev"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "aegisvault-db"
+database_id = "local-aegisvault-db-id"
+migrations_dir = "migrations"
+
+[observability]
+enabled = false

@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build and Distribution Outputs
+dist/
+dist-worker/
+build/
+.wrangler/
+coverage/
+
+# Environment Variables and Sensitive Configs
+.env
+.env.*
+!.env.example
+
+# Cryptographic Keys, Certs, and Plaintext Backups
+*.pem
+*.key
+*.cert
+*.aegisvault
+*.txt.key
+aegisvault-export-*
+*-bitwarden.json
+*-bitwarden.csv
+*-protonpass.json
+*-protonpass.csv
+
+# Logs & Debugging
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Editor & System Files
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.sublime-project
+*.sublime-workspace
