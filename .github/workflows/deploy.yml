@@ -62,11 +62,11 @@ jobs:
 
       - name: Ensure Cloudflare Pages Project Exists
         run: |
-          npx wrangler pages project create surakshit-vault --production-branch=main || echo "Pages project already exists or created"
+          npx wrangler pages project create surakshit-vault --production-branch=main --config /dev/null || echo "Pages project already exists"
 
       - name: Deploy Frontend to Cloudflare Pages
         run: |
-          npx wrangler pages deploy dist --project-name=surakshit-vault --commit-dirty=true
+          npx wrangler pages deploy dist --project-name=surakshit-vault --commit-dirty=true --config /dev/null
 
       - name: Apply Cloudflare D1 Migrations
         run: |
