@@ -8,7 +8,10 @@ import { useAuth } from '../../context/AuthContext';
 
 export const AuthView: React.FC = () => {
   const [tab, setTab] = useState<'login' | 'register'>('login');
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState(''); // Email or Username for Login
+  const [username, setUsername] = useState(''); // Registration username (Required)
+  const [email, setEmail] = useState(''); // Registration email (Optional)
+  const [skipEmail, setSkipEmail] = useState(false); // "Skip for now" state
   const [masterPassword, setMasterPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [enableRecovery, setEnableRecovery] = useState(true);
@@ -21,24 +24,55 @@ export const AuthView: React.FC = () => {
     e.preventDefault();
     setLocalError(null);
 
-    if (!email.trim() || !masterPassword) {
-      setLocalError('Please enter your email and master password.');
-      return;
-    }
+    if (tab === 'login') {
+      if (!identifier.trim() || !masterPassword) {
+        setLocalError('Please enter your username or email and master password.');
+        return;
+      }
+      await login(identifier.trim(), masterPassword);
+    } else {
+      if (!username.trim()) {
+        setLocalError('Please enter a username.');
+        return;
+      }
 
-    if (tab === 'register') {
+      if (username.includes('@')) {
+        setLocalError('Username cannot contain the @ symbol. Please enter a valid username (e.g. dev-user).');
+        return;
+      }
+
+      if (!/^[a-zA-Z0-9_.-]{3,30}$/.test(username.trim())) {
+        setLocalError('Username must be between 3 and 30 characters (letters, numbers, dots, dashes, underscores).');
+        return;
+      }
+
+      const emailToSubmit = skipEmail ? '' : email.trim();
+      if (emailToSubmit && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailToSubmit)) {
+        setLocalError('Please enter a valid email address, or check "Skip for now".');
+        return;
+      }
+
+      if (!masterPassword) {
+        setLocalError('Please enter a master password.');
+        return;
+      }
+
       if (masterPassword.length < 12) {
         setLocalError('Master password must be at least 12 characters.');
         return;
       }
+
       if (masterPassword !== confirmPassword) {
         setLocalError('Master passwords do not match.');
         return;
       }
 
-      await register(email, masterPassword, enableRecovery);
-    } else {
-      await login(email, masterPassword);
+      await register({
+        username: username.trim(),
+        email: emailToSubmit || undefined,
+        masterPass: masterPassword,
+        enableRecovery,
+      });
     }
   };
 
@@ -95,23 +129,79 @@ export const AuthView: React.FC = () => {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Input
-              label="Email Address"
-              type="email"
-              placeholder="name@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              autoFocus
-            />
+            {/* LOGIN MODE */}
+            {tab === 'login' ? (
+              <Input
+                label="Username or Email"
+                type="text"
+                placeholder="e.g. dev-user or name@example.com"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                disableSelection
+                required
+              />
+            ) : (
+              /* REGISTER MODE */
+              <>
+                <Input
+                  label="Username (Required)"
+                  type="text"
+                  placeholder="e.g. dev-user"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  disableSelection
+                  required
+                />
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-300">
+                      Email Address <span className="text-gray-400 font-normal">(Optional)</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSkipEmail(!skipEmail);
+                        if (!skipEmail) setEmail('');
+                      }}
+                      className="text-[11px] font-medium text-vault-600 hover:text-vault-700 dark:text-vault-400"
+                    >
+                      {skipEmail ? 'Enter email' : 'Skip for now'}
+                    </button>
+                  </div>
+
+                  {!skipEmail ? (
+                    <Input
+                      type="email"
+                      placeholder="name@example.com (optional)"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      disableSelection
+                    />
+                  ) : (
+                    <div className="p-2.5 rounded-lg border border-dashed border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/50 text-xs text-gray-500 flex items-center justify-between">
+                      <span>Email skipped. You can add an email later in Account Settings.</span>
+                      <button
+                        type="button"
+                        onClick={() => setSkipEmail(false)}
+                        className="text-vault-600 font-semibold hover:underline ml-2 shrink-0"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
 
             <div>
               <Input
-                label="Master Password"
+                label="Master Password (Required)"
                 isPassword
-                placeholder="Enter your master password"
+                placeholder="Enter your master password (min 12 chars)"
                 value={masterPassword}
                 onChange={(e) => setMasterPassword(e.target.value)}
+                disableSelection
                 required
               />
               {tab === 'register' && masterPassword && (
@@ -126,6 +216,7 @@ export const AuthView: React.FC = () => {
                 placeholder="Confirm your master password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
+                disableSelection
                 required
               />
             )}

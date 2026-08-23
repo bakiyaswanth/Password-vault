@@ -10,6 +10,7 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   isPassword?: boolean;
   leftIcon?: React.ReactNode;
   rightAction?: React.ReactNode;
+  disableSelection?: boolean;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
@@ -21,6 +22,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
       isPassword = false,
       leftIcon,
       rightAction,
+      disableSelection = false,
       className,
       type = 'text',
       ...props
@@ -50,6 +52,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             className={twMerge(
               clsx(
                 'block w-full rounded-lg border bg-white dark:bg-gray-900 px-3.5 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-vault-500 dark:focus:ring-vault-400 transition-colors',
+                disableSelection ? 'auth-input-no-select' : 'select-text',
                 error
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-400'
                   : 'border-gray-300 dark:border-gray-700 focus:border-vault-500',
@@ -66,6 +69,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
               type="button"
               className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 focus:outline-none"
               onClick={() => setShowPassword(!showPassword)}
+              onMouseDown={(e) => e.preventDefault()}
               tabIndex={-1}
               aria-label={showPassword ? 'Hide password' : 'Show password'}
             >

@@ -1,6 +1,6 @@
 /**
  * Surakshit Vault State & High-Performance Synchronization Context
- * Implements in-memory indexing, category bucketing, instant search caching, and atomic batch sync.
+ * Implements in-memory indexing, category bucketing, instant search caching, and atomic batch sync via typed apiClient.
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
@@ -10,6 +10,7 @@ import { bytesToBase64, base64ToBytes, bytesToUtf8, utf8ToBytes } from '../crypt
 import { createEncryptedBackup, restoreEncryptedBackup } from '../crypto/backup';
 import { computeItemFingerprint } from '../utils/importers';
 import { perfTracker } from '../utils/performance';
+import { apiClient, ApiClientError } from '../api/client';
 import { logger } from '../utils/logger';
 import type { VaultItem, DecryptedVault } from '../types/vault';
 
@@ -20,7 +21,6 @@ export interface BatchImportReport {
   totalVaultItems: number;
 }
 
-// Internal pre-indexed item wrapper for sub-millisecond search
 interface IndexedItem {
   item: VaultItem;
   searchStr: string;
@@ -93,8 +93,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const items = useMemo(() => vaultData?.items ?? [], [vaultData]);
   const folders = useMemo(() => vaultData?.folders ?? [], [vaultData]);
 
-  // High-Performance In-Memory Search Index Creation
-  // Pre-computes normalized lowercase search strings for O(1) matching
+  // Search Index
   const indexedItems = useMemo<IndexedItem[]>(() => {
     perfTracker.startMeasure('index_vault_items');
     const result = items.map((item) => {
@@ -121,7 +120,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return result;
   }, [items]);
 
-  // Categorized Buckets: Pre-grouped for instantaneous tab switching
+  // Categorized Buckets
   const categoryBuckets = useMemo(() => {
     const active = indexedItems.filter((i) => !i.item.trash);
     const trash = indexedItems.filter((i) => i.item.trash);
@@ -162,7 +161,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, [indexedItems, folders]);
 
-  // Client-side Instant Fuzzy Search & Filtering (< 1ms)
+  // Filtered Items
   const filteredItems = useMemo(() => {
     perfTracker.startMeasure('search_query_eval');
 
@@ -200,7 +199,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return resultItems;
   }, [categoryBuckets, selectedCategory, selectedFolder, searchQuery]);
 
-  // Synchronize encrypted vault to Cloudflare Worker
+  // Synchronize encrypted vault via typed apiClient
   const syncVault = useCallback(async (): Promise<boolean> => {
     const vek = memoryStore.getVaultKey();
     const vault = memoryStore.getVault();
@@ -213,55 +212,46 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     try {
       perfTracker.startMeasure('sync_encrypt_vault');
-      // 1. Encrypt updated vault in client memory
       const jsonBytes = utf8ToBytes(JSON.stringify(vault));
       const { ciphertext, iv } = await encryptAesGcm(jsonBytes, vek);
       perfTracker.endMeasure('sync_encrypt_vault');
 
-      // 2. Send PUT request with expected revision
-      const res = await fetch('/api/vault', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          expectedRevision: currentRevision,
-          encryptedPayload: bytesToBase64(ciphertext),
-          iv: bytesToBase64(iv),
-        }),
+      const resData = await apiClient.vault.sync({
+        expectedRevision: currentRevision,
+        encryptedPayload: bytesToBase64(ciphertext),
+        iv: bytesToBase64(iv),
       });
 
-      if (res.status === 409) {
-        // Revision Conflict!
-        const conflictData = (await res.json()) as any;
+      memoryStore.setVault(vault, resData.revision, memoryStore.getVaultId() || '');
+      logger.info('Surakshit Vault synchronized successfully. Revision:', resData.revision);
+      return true;
+    } catch (err: unknown) {
+      if (err instanceof ApiClientError && err.status === 409) {
         logger.warn('Sync conflict detected, fetching remote revision');
+        const conflictDetails: any = err.details || {};
 
         let serverItems: VaultItem[] = [];
-        if (conflictData.encryptedPayload && conflictData.iv) {
-          const sIv = base64ToBytes(conflictData.iv);
-          const sCipher = base64ToBytes(conflictData.encryptedPayload);
-          const decrypted = await decryptAesGcm(sCipher, vek, sIv);
-          const sVault: DecryptedVault = JSON.parse(bytesToUtf8(decrypted));
-          serverItems = sVault.items;
+        if (conflictDetails.encryptedPayload && conflictDetails.iv) {
+          try {
+            const sIv = base64ToBytes(conflictDetails.iv);
+            const sCipher = base64ToBytes(conflictDetails.encryptedPayload);
+            const decrypted = await decryptAesGcm(sCipher, vek, sIv);
+            const sVault: DecryptedVault = JSON.parse(bytesToUtf8(decrypted));
+            serverItems = sVault.items;
+          } catch {
+            // Ignored
+          }
         }
 
         setConflictState({
           hasConflict: true,
-          serverRevision: conflictData.currentRevision,
+          serverRevision: conflictDetails.currentRevision,
           serverItems,
         });
         return false;
       }
 
-      if (!res.ok) {
-        throw new Error('Sync failed with status ' + res.status);
-      }
-
-      const resData = (await res.json()) as any;
-      // Update in-memory revision number
-      memoryStore.setVault(vault, resData.revision, memoryStore.getVaultId() || '');
-      logger.info('Surakshit Vault synchronized successfully. Revision:', resData.revision);
-      return true;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Synchronization failed';
+      const msg = err instanceof ApiClientError ? err.message : (err instanceof Error ? err.message : 'Synchronization failed');
       setSyncError(msg);
       logger.error('Vault synchronization failed', err);
       return false;
@@ -327,7 +317,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return newItem;
   };
 
-  // High-Speed Instant Atomic Batch Import
+  // Batch Import
   const importBatch = async (
     newItems: VaultItem[],
     newFolders: string[],
@@ -402,7 +392,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await syncVault();
   };
 
-  // Delete Single Item (or move to trash)
+  // Delete Single Item
   const deleteItem = async (id: string, permanent: boolean = false) => {
     const now = Date.now();
     if (permanent) {
@@ -425,7 +415,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await syncVault();
   };
 
-  // Bulk Delete Items (moves multiple items to trash or deletes permanently in 1 transaction)
+  // Bulk Delete
   const bulkDeleteItems = async (ids: string[], permanent: boolean = false) => {
     const idSet = new Set(ids);
     const now = Date.now();
@@ -453,7 +443,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await syncVault();
   };
 
-  // Bulk Move Items to Folder
+  // Bulk Move to Folder
   const bulkMoveToFolder = async (ids: string[], folder: string | undefined) => {
     const idSet = new Set(ids);
     const now = Date.now();
@@ -485,7 +475,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await syncVault();
   };
 
-  // Delete All Vault Items (Destructive Action)
+  // Delete All Items
   const deleteAllItems = async () => {
     const now = Date.now();
     memoryStore.updateItems((prev) => ({
@@ -497,7 +487,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await syncVault();
   };
 
-  // Restore from Trash
+  // Restore Item
   const restoreItem = async (id: string) => {
     const now = Date.now();
     memoryStore.updateItems((prev) => ({

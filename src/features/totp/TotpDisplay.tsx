@@ -56,14 +56,14 @@ export const TotpDisplay: React.FC<{ secret: string; label?: string }> = ({ secr
   const isExpiringSoon = totpData.secondsRemaining <= 5;
 
   return (
-    <div className="flex items-center justify-between p-3.5 rounded-xl bg-vault-50/50 dark:bg-gray-800/60 border border-vault-100 dark:border-gray-700">
+    <div className="flex items-center justify-between p-3.5 rounded-xl bg-vault-50/50 dark:bg-gray-800/60 border border-vault-100 dark:border-gray-700 select-none">
       <div className="space-y-0.5">
         <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
           <Clock className="w-3.5 h-3.5" />
           <span>One-Time Password (TOTP)</span>
           {label && <span className="text-gray-400">• {label}</span>}
         </div>
-        <div className="font-mono text-2xl font-bold tracking-widest text-vault-900 dark:text-vault-100 select-all">
+        <div className="font-mono text-2xl font-bold tracking-widest text-vault-900 dark:text-vault-100 select-none">
           {formattedCode}
         </div>
       </div>

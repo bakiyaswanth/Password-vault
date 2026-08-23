@@ -203,7 +203,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
             {item.username && (
               <div
                 onClick={() => copyToClipboard(item.username, usernameKey)}
-                className={`p-3.5 rounded-xl border transition-all cursor-pointer group flex items-center justify-between ${
+                className={`p-3.5 rounded-xl border transition-all cursor-pointer group flex items-center justify-between select-none ${
                   isCopied(usernameKey)
                     ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 shadow-sm'
                     : 'bg-gray-50/80 dark:bg-gray-800/50 border-gray-200/80 dark:border-gray-800 hover:border-vault-400 dark:hover:border-vault-600 hover:bg-white dark:hover:bg-gray-800/80 hover:shadow-sm'
@@ -225,7 +225,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
                       </span>
                     )}
                   </div>
-                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100 select-all block truncate mt-0.5 font-mono">
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100 block truncate mt-0.5 font-mono select-none">
                     {item.username}
                   </span>
                 </div>
@@ -244,7 +244,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
             {item.password && (
               <div
                 onClick={() => copyToClipboard(item.password, passwordKey)}
-                className={`p-3.5 rounded-xl border transition-all cursor-pointer group flex items-center justify-between ${
+                className={`p-3.5 rounded-xl border transition-all cursor-pointer group flex items-center justify-between select-none ${
                   isCopied(passwordKey)
                     ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 shadow-sm'
                     : 'bg-gray-50/80 dark:bg-gray-800/50 border-gray-200/80 dark:border-gray-800 hover:border-vault-400 dark:hover:border-vault-600 hover:bg-white dark:hover:bg-gray-800/80 hover:shadow-sm'
@@ -266,13 +266,13 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
                       </span>
                     )}
                   </div>
-                  <span className="font-mono text-sm font-medium text-gray-900 dark:text-gray-100 select-all block truncate mt-0.5">
+                  <span className="font-mono text-sm font-medium text-gray-900 dark:text-gray-100 block truncate mt-0.5 select-none">
                     {showPassword ? item.password : '••••••••••••••••••••'}
                   </span>
                 </div>
 
                 <div className="flex items-center gap-1 shrink-0">
-                  {/* Password Reveal Toggle (e.stopPropagation prevents accidental copy when revealing) */}
+                  {/* Password Reveal Toggle */}
                   <button
                     type="button"
                     onClick={(e) => {
@@ -311,10 +311,10 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
                     <div
                       key={idx}
                       onClick={() => copyToClipboard(u, urlKey)}
-                      className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-400 hover:bg-white dark:hover:bg-gray-800 transition-all group"
+                      className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-400 hover:bg-white dark:hover:bg-gray-800 transition-all group select-none"
                       title="Click to copy URL"
                     >
-                      <span className="font-mono text-gray-700 dark:text-gray-300 truncate max-w-md">
+                      <span className="font-mono text-gray-700 dark:text-gray-300 truncate max-w-md select-none">
                         {u}
                       </span>
                       <div className="flex items-center gap-2 shrink-0">
@@ -409,7 +409,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
           <div className="space-y-4">
             <div
               onClick={() => copyToClipboard(item.cardNumber, cardNumKey)}
-              className="p-6 rounded-2xl bg-gradient-to-br from-vault-800 to-vault-950 text-white shadow-lg space-y-6 cursor-pointer hover:ring-2 hover:ring-vault-400 transition-all group"
+              className="p-6 rounded-2xl bg-gradient-to-br from-vault-800 to-vault-950 text-white shadow-lg space-y-6 cursor-pointer hover:ring-2 hover:ring-vault-400 transition-all group select-none"
               title="Click to copy card number"
             >
               <div className="flex items-center justify-between">
@@ -422,10 +422,10 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
                   )}
                 </span>
               </div>
-              <div className="font-mono text-xl tracking-widest font-semibold">
+              <div className="font-mono text-xl tracking-widest font-semibold select-none">
                 {item.cardNumber.replace(/(\d{4})/g, '$1 ').trim()}
               </div>
-              <div className="flex items-end justify-between text-xs">
+              <div className="flex items-end justify-between text-xs select-none">
                 <div>
                   <span className="text-[10px] text-vault-400 block uppercase">Cardholder</span>
                   <span className="font-medium tracking-wide">{item.cardholderName || 'JANE DOE'}</span>
@@ -442,14 +442,14 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <div
                 onClick={() => copyToClipboard(item.cvv, cvvKey)}
-                className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 flex items-center justify-between cursor-pointer hover:border-vault-300 transition-all"
+                className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 flex items-center justify-between cursor-pointer hover:border-vault-300 transition-all select-none"
                 title="Click to copy CVV"
               >
                 <div>
                   <span className="text-xs text-gray-500 dark:text-gray-400 block font-medium">
                     CVV / CVC
                   </span>
-                  <span className="font-mono text-sm font-semibold">
+                  <span className="font-mono text-sm font-semibold select-none">
                     {showCvv ? item.cvv : '•••'}
                   </span>
                 </div>
@@ -477,14 +477,14 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
               {item.pin && (
                 <div
                   onClick={() => copyToClipboard(item.pin!, pinKey)}
-                  className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 flex items-center justify-between cursor-pointer hover:border-vault-300 transition-all"
+                  className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 flex items-center justify-between cursor-pointer hover:border-vault-300 transition-all select-none"
                   title="Click to copy PIN"
                 >
                   <div>
                     <span className="text-xs text-gray-500 dark:text-gray-400 block font-medium">
                       PIN
                     </span>
-                    <span className="font-mono text-sm font-semibold">
+                    <span className="font-mono text-sm font-semibold select-none">
                       {showPin ? item.pin : '••••'}
                     </span>
                   </div>
@@ -519,12 +519,12 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
             <div className="grid grid-cols-2 gap-3">
               <div
                 onClick={() => copyToClipboard(`${item.firstName} ${item.lastName}`, `${item.id}:name`)}
-                className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-300 transition-all flex items-center justify-between"
+                className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-300 transition-all flex items-center justify-between select-none"
                 title="Click to copy full name"
               >
                 <div>
                   <span className="text-gray-400 block">Full Name</span>
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  <span className="font-semibold text-gray-900 dark:text-gray-100 select-none">
                     {item.firstName} {item.lastName}
                   </span>
                 </div>
@@ -533,36 +533,36 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
 
               <div
                 onClick={() => copyToClipboard(item.email, `${item.id}:email`)}
-                className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-300 transition-all flex items-center justify-between"
+                className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-300 transition-all flex items-center justify-between select-none"
                 title="Click to copy email"
               >
                 <div>
                   <span className="text-gray-400 block">Email</span>
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">{item.email}</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100 select-none">{item.email}</span>
                 </div>
                 {isCopied(`${item.id}:email`) && <Check className="w-3.5 h-3.5 text-emerald-500" />}
               </div>
 
               <div
                 onClick={() => copyToClipboard(item.phone || '', `${item.id}:phone`)}
-                className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-300 transition-all flex items-center justify-between"
+                className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-300 transition-all flex items-center justify-between select-none"
                 title="Click to copy phone"
               >
                 <div>
                   <span className="text-gray-400 block">Phone</span>
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">{item.phone || '—'}</span>
+                  <span className="font-semibold text-gray-900 dark:text-gray-100 select-none">{item.phone || '—'}</span>
                 </div>
                 {isCopied(`${item.id}:phone`) && <Check className="w-3.5 h-3.5 text-emerald-500" />}
               </div>
 
               <div
                 onClick={() => copyToClipboard(`${item.city || ''}, ${item.country || ''}`, `${item.id}:city`)}
-                className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-300 transition-all flex items-center justify-between"
+                className="p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-300 transition-all flex items-center justify-between select-none"
                 title="Click to copy location"
               >
                 <div>
                   <span className="text-gray-400 block">City, Country</span>
-                  <span className="font-semibold text-gray-900 dark:text-gray-100">
+                  <span className="font-semibold text-gray-900 dark:text-gray-100 select-none">
                     {item.city || '—'}, {item.country || '—'}
                   </span>
                 </div>
@@ -585,12 +585,12 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
                   <div
                     key={f.id}
                     onClick={() => copyToClipboard(f.value, fieldKey)}
-                    className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-300 transition-all"
+                    className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-300 transition-all select-none"
                     title="Click to copy value"
                   >
                     <div>
                       <span className="text-gray-400 block">{f.label}</span>
-                      <span className="font-mono font-medium text-gray-900 dark:text-gray-100">
+                      <span className="font-mono font-medium text-gray-900 dark:text-gray-100 select-none">
                         {f.value}
                       </span>
                     </div>

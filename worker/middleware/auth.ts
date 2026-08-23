@@ -1,10 +1,12 @@
 /**
- * AegisVault Authentication Middleware
+ * Surakshit Vault Authentication Middleware
  * Validates session tokens against D1 sessions table.
  */
 
 import type { MiddlewareHandler } from 'hono';
-import { Database } from '../database/db';
+import { SessionRepository } from '../repositories/SessionRepository';
+import { UserRepository } from '../repositories/UserRepository';
+import { AppError } from '../errors/AppError';
 import type { Env, Variables } from '../types';
 
 /**
@@ -46,24 +48,32 @@ export const requireAuth: MiddlewareHandler<{ Bindings: Env; Variables: Variable
 ) => {
   const token = extractToken(c);
   if (!token) {
-    return c.json({ error: 'Unauthorized', message: 'Authentication session required' }, 401);
+    throw AppError.unauthorized('Authentication session required');
   }
 
   const tokenHash = await hashToken(token);
-  const db = new Database(c.env.DB);
-  const session = await db.getSessionByTokenHash(tokenHash);
+  const sessionRepo = new SessionRepository(c.env.DB);
+  const session = await sessionRepo.findByTokenHash(tokenHash);
 
   if (!session) {
-    return c.json({ error: 'Unauthorized', message: 'Session expired or invalid' }, 401);
+    throw AppError.unauthorized('Session expired or invalid');
   }
 
-  const user = await db.getUserById(session.user_id);
+  const userRepo = new UserRepository(c.env.DB);
+  const user = await userRepo.findById(session.user_id);
   if (!user) {
-    return c.json({ error: 'Unauthorized', message: 'User not found' }, 401);
+    throw AppError.unauthorized('User not found');
   }
 
-  // Update session last active time asynchronously
-  c.executionCtx?.waitUntil?.(db.updateSessionActivity(session.id, Date.now()));
+  // Update session last active time asynchronously if execution context exists
+  try {
+    const ctx = (c as any).executionCtx;
+    if (ctx && typeof ctx.waitUntil === 'function') {
+      ctx.waitUntil(sessionRepo.updateLastActive(session.id, Date.now()));
+    }
+  } catch {
+    // Ignore in non-Worker test contexts
+  }
 
   c.set('user', user);
   c.set('session', session);

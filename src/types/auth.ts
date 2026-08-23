@@ -1,12 +1,15 @@
 /**
- * AegisVault Authentication & Session Types
+ * Surakshit Vault Authentication & Session Types
  */
 
 import type { Argon2Params, EncryptedBlobV1 } from '../crypto/types';
 
 export interface AuthUser {
   id: string;
+  username: string;
+  email: string;
   emailLookupHash: string;
+  usernameLookupHash?: string;
   kdfSalt: string;
   kdfParams: Argon2Params;
   encryptedVaultKey: EncryptedBlobV1;

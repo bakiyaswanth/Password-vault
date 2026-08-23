@@ -4,10 +4,16 @@
 
 @layer base {
   body {
-    @apply antialiased select-none bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100;
+    @apply antialiased bg-white text-gray-900 dark:bg-gray-950 dark:text-gray-100;
   }
 
-  /* Custom scrollbar for modern feel */
+  /* Subtle, theme-consistent text selection across the application */
+  ::selection {
+    background-color: rgba(59, 130, 246, 0.25);
+    color: inherit;
+  }
+
+  /* Custom scrollbar */
   ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -23,5 +29,23 @@
 
   ::-webkit-scrollbar-thumb:hover {
     @apply bg-gray-400 dark:bg-gray-600;
+  }
+}
+
+@layer utilities {
+  /* Authentication inputs non-selectable utility */
+  .auth-input-no-select {
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .auth-input-no-select::selection {
+    background-color: transparent !important;
+    color: inherit !important;
+  }
+
+  .auth-input-no-select::-moz-selection {
+    background-color: transparent !important;
+    color: inherit !important;
   }
 }

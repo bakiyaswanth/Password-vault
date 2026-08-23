@@ -40,6 +40,8 @@ export const Header: React.FC<HeaderProps> = ({
   const { isSyncing, syncError } = useVault();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
+  const displayUsername = user?.username || (user?.email ? user.email.split('@')[0] : 'Surakshit User');
+
   return (
     <header className="h-14 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 flex items-center justify-between shrink-0 z-20">
       {/* Brand & Sync Status */}
@@ -144,9 +146,14 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 shadow-2xl py-2 z-30 text-xs animate-fade-in divide-y divide-gray-100 dark:divide-gray-800">
               <div className="px-3.5 py-2">
                 <span className="text-[10px] uppercase font-bold text-gray-400 block">Signed in as</span>
-                <span className="font-semibold text-gray-900 dark:text-white truncate block font-mono text-[11px] mt-0.5">
-                  {user?.id ? `user-${user.id.slice(0, 8)}` : 'Surakshit User'}
+                <span className="font-semibold text-gray-900 dark:text-white truncate block text-[12px] mt-0.5">
+                  {displayUsername}
                 </span>
+                {user?.email && (
+                  <span className="text-[10px] text-gray-400 dark:text-gray-500 truncate block mt-0.5">
+                    {user.email}
+                  </span>
+                )}
               </div>
 
               <div className="py-1">

@@ -100,7 +100,7 @@ export const PasswordGeneratorModal: React.FC<PasswordGeneratorModalProps> = ({
         {/* Generated Output Display */}
         <div className="relative rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950 p-4">
           <div className="flex items-center justify-between gap-3">
-            <div className="font-mono text-base font-medium break-all text-gray-900 dark:text-gray-100 select-all pr-12">
+            <div className="font-mono text-base font-medium break-all text-gray-900 dark:text-gray-100 select-none pr-12">
               {generatedValue}
             </div>
             <div className="flex items-center gap-1.5 shrink-0 absolute right-3 top-3">

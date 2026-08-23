@@ -11,5 +11,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["worker/**/*.ts"]
+  "include": ["worker/**/*.ts", "functions/**/*.ts"]
 }

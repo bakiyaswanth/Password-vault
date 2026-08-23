@@ -62,6 +62,7 @@ export const RecoveryModal: React.FC<{
           type="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          disableSelection
           required
         />
 
@@ -85,6 +86,7 @@ export const RecoveryModal: React.FC<{
           placeholder="Enter a strong master password (min 12 chars)"
           value={newMasterPass}
           onChange={(e) => setNewMasterPass(e.target.value)}
+          disableSelection
           required
         />
 
@@ -94,6 +96,7 @@ export const RecoveryModal: React.FC<{
           placeholder="Re-enter your new master password"
           value={confirmPass}
           onChange={(e) => setConfirmPass(e.target.value)}
+          disableSelection
           required
         />
 

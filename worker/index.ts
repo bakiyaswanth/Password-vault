@@ -1,11 +1,12 @@
 /**
- * AegisVault Cloudflare Worker Entry Point
- * API Gateway, Router, Middleware, and Zero-Knowledge Request Handlers
+ * Surakshit Vault Cloudflare Worker Entry Point
+ * API Gateway, Router, Middleware, and Centralized Error Handling
  */
 
 import { Hono } from 'hono';
 import { securityHeaders } from './middleware/security-headers';
 import { corsMiddleware } from './middleware/cors';
+import { AppError } from './errors/AppError';
 import { authRouter } from './api/auth';
 import { vaultRouter } from './api/vault';
 import { sessionRouter } from './api/sessions';
@@ -17,14 +18,21 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use('*', securityHeaders);
 app.use('*', corsMiddleware);
 
-// Safe Global Error Handler (Never leaks internals or sensitive data)
+// Safe Centralized Global Error Handler
 app.onError((err, c) => {
-  // Safe console log without body/parameters
-  console.error(`[Worker Error] ${c.req.method} ${c.req.path}:`, err.name);
+  if (err instanceof AppError) {
+    return c.json(err.toResponseObject(), err.status as any);
+  }
+
+  // Safe server logging without leaking secrets/passwords
+  console.error(`[Worker Unhandled Error] ${c.req.method} ${c.req.path}:`, err.message || err.name);
+
   return c.json(
     {
-      error: 'Internal Server Error',
-      message: 'An unexpected security-monitored error occurred.',
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'An unexpected server error occurred. Please try again.',
+      },
     },
     500
   );
@@ -34,7 +42,7 @@ app.onError((err, c) => {
 app.get('/api/health', (c) => {
   return c.json({
     status: 'ok',
-    service: 'AegisVault API',
+    service: 'Surakshit Vault API',
     version: '1.0.0',
     zeroKnowledge: true,
   });

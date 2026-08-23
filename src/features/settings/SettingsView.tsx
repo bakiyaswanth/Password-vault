@@ -10,6 +10,10 @@ import {
   FileCode2,
   ArrowLeft,
   ShieldCheck,
+  User,
+  Mail,
+  AlertCircle,
+  Plus,
 } from 'lucide-react';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
@@ -17,7 +21,8 @@ import { Badge } from '../../components/common/Badge';
 import { Modal } from '../../components/common/Modal';
 import { useAuth } from '../../context/AuthContext';
 import { useVault } from '../../context/VaultContext';
-import type { SessionDevice } from '../../types/auth';
+import { apiClient } from '../../api/client';
+import type { SessionItem } from '../../types/api';
 
 const ImportModal = lazy(() =>
   import('./ImportModal').then((m) => ({ default: m.ImportModal }))
@@ -41,7 +46,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onLockOnBlurChange,
   onBackToVault,
 }) => {
-  const { logout } = useAuth();
+  const { user, logout, addEmail } = useAuth();
   const { items } = useVault();
 
   // Modals state
@@ -49,24 +54,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
   // Sessions state
-  const [sessions, setSessions] = useState<SessionDevice[]>([]);
+  const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
+
+  // Add Email state
+  const [isAddingEmail, setIsAddingEmail] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
 
   // Account Purge state
   const [isPurgeModalOpen, setIsPurgeModalOpen] = useState(false);
   const [purgeConfirmText, setPurgeConfirmText] = useState('');
   const [isPurging, setIsPurging] = useState(false);
 
+  const hasEmail = Boolean(user?.email && user.email.trim().length > 0);
+
   const fetchSessions = async () => {
     setLoadingSessions(true);
     try {
-      const res = await fetch('/api/sessions');
-      if (res.ok) {
-        const data: any = await res.json();
-        setSessions(data.sessions || []);
-      }
+      const data = await apiClient.sessions.list();
+      setSessions(data.sessions || []);
     } catch {
-      // Ignored
+      // Graceful error fallback
     } finally {
       setLoadingSessions(false);
     }
@@ -78,10 +88,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const handleRevokeSession = async (id: string) => {
     try {
-      await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
+      await apiClient.sessions.revoke(id);
       setSessions(sessions.filter((s) => s.id !== id));
     } catch {
       // Ignored
+    }
+  };
+
+  const handleSaveEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailError(null);
+
+    const trimmed = emailInput.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      setEmailError('Please enter a valid email address.');
+      return;
+    }
+
+    setEmailLoading(true);
+    try {
+      const res = await addEmail(trimmed);
+      if (res.success) {
+        setIsAddingEmail(false);
+        setEmailInput('');
+      } else {
+        setEmailError(res.error || 'Failed to add email.');
+      }
+    } finally {
+      setEmailLoading(false);
     }
   };
 
@@ -89,7 +123,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (purgeConfirmText !== 'DELETE') return;
     setIsPurging(true);
     try {
-      await fetch('/api/sessions/account/purge', { method: 'DELETE' });
+      await apiClient.sessions.purgeAccount();
       await logout();
     } catch {
       setIsPurging(false);
@@ -122,11 +156,120 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       <div>
         <h2 className="text-xl font-bold text-gray-900 dark:text-white">Security & Settings</h2>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Manage auto-lock timers, session security, Bitwarden/Proton Pass import & export, and Surakshit Vault lifecycle.
+          Manage your account profile, email recovery, auto-lock timers, active sessions, and data import/export.
         </p>
       </div>
 
-      {/* 1. Auto-Lock Settings */}
+      {/* 1. Account & Profile Settings Card */}
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-vault-100 dark:bg-vault-950 text-vault-600 dark:text-vault-400">
+            <User className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-gray-900 dark:text-white">Account Profile & Identifiers</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Manage your public username and linked email address.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+          {/* Username Card */}
+          <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-950/40 space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Username</span>
+            <div className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <span>{user?.username || 'User'}</span>
+              <Badge variant="blue" size="sm">Primary ID</Badge>
+            </div>
+            <p className="text-[11px] text-gray-400">Your unique public identifier for sign-in.</p>
+          </div>
+
+          {/* Email Status Card */}
+          <div className="p-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-950/40 space-y-2">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Email Address</span>
+            {hasEmail ? (
+              <div>
+                <div className="text-sm font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-emerald-500" />
+                  <span>{user?.email}</span>
+                  <Badge variant="green" size="sm">Verified</Badge>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">Enables email-based sign in and account alerts.</p>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-semibold text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Email: Not added</span>
+                  </div>
+                  {!isAddingEmail && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      leftIcon={<Plus className="w-3.5 h-3.5" />}
+                      onClick={() => setIsAddingEmail(true)}
+                    >
+                      Add Email
+                    </Button>
+                  )}
+                </div>
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
+                  Notice: Email recovery is unavailable until you add and verify an email address.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Inline Add Email Form */}
+        {isAddingEmail && !hasEmail && (
+          <form onSubmit={handleSaveEmail} className="p-4 rounded-xl border border-vault-500/40 bg-vault-50/50 dark:bg-vault-950/30 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-gray-900 dark:text-white flex items-center gap-1.5">
+                <Mail className="w-4 h-4 text-vault-600" />
+                Add and Verify Email Address
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingEmail(false);
+                  setEmailError(null);
+                }}
+                className="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              >
+                Cancel
+              </button>
+            </div>
+
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Input
+                  type="email"
+                  placeholder="name@example.com"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </div>
+              <Button type="submit" variant="primary" size="sm" isLoading={emailLoading}>
+                Save Email
+              </Button>
+            </div>
+
+            {emailError && (
+              <div className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400 font-medium">
+                <AlertCircle className="w-3.5 h-3.5" />
+                <span>{emailError}</span>
+              </div>
+            )}
+          </form>
+        )}
+      </div>
+
+      {/* 2. Auto-Lock Settings */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-vault-100 dark:bg-vault-950 text-vault-600 dark:text-vault-400">
@@ -174,7 +317,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </label>
       </div>
 
-      {/* 2. Import & Export Hub */}
+      {/* 3. Import & Export Hub */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm space-y-4">
         <div className="flex items-center gap-3">
           <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400">
@@ -231,7 +374,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* 3. Active Devices & Sessions */}
+      {/* 4. Active Devices & Sessions */}
       <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-200 dark:border-gray-800 p-6 shadow-sm space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -287,7 +430,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* 4. Danger Zone - Purge Account */}
+      {/* 5. Danger Zone - Purge Account */}
       <div className="bg-red-50/40 dark:bg-red-950/20 rounded-2xl border border-red-200 dark:border-red-900/50 p-6 space-y-4">
         <div className="flex items-center gap-3 text-red-700 dark:text-red-400">
           <AlertTriangle className="w-5 h-5 shrink-0" />

@@ -51,8 +51,8 @@ export const UnlockView: React.FC = () => {
               placeholder="Enter master password"
               value={masterPassword}
               onChange={(e) => setMasterPassword(e.target.value)}
+              disableSelection
               required
-              autoFocus
             />
 
             {activeError && (

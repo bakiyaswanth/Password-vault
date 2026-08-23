@@ -8,7 +8,7 @@ export interface ModalProps {
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
-  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
+  maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl' | '4xl';
   description?: string;
 }
 
@@ -40,6 +40,8 @@ export const Modal: React.FC<ModalProps> = ({
     lg: 'max-w-lg',
     xl: 'max-w-xl',
     '2xl': 'max-w-2xl',
+    '3xl': 'max-w-3xl',
+    '4xl': 'max-w-4xl',
   };
 
   return (
@@ -57,18 +59,18 @@ export const Modal: React.FC<ModalProps> = ({
           ref={modalRef}
           className={twMerge(
             clsx(
-              'w-full transform overflow-hidden rounded-2xl bg-white dark:bg-gray-900 p-6 text-left align-middle shadow-2xl transition-all border border-gray-200 dark:border-gray-800 z-10',
+              'w-full transform overflow-hidden rounded-2xl bg-white dark:bg-gray-900 p-6 sm:p-7 text-left align-middle shadow-2xl transition-all border border-gray-200 dark:border-gray-800 z-10',
               maxWidthStyles[maxWidth]
             )
           )}
         >
-          <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-gray-800">
+          <div className="flex items-center justify-between pb-3.5 border-b border-gray-100 dark:border-gray-800">
             <div>
               {title && (
-                <h3 className="text-lg font-bold text-gray-900 dark:text-white">{title}</h3>
+                <h3 className="text-lg sm:text-xl font-bold text-gray-900 dark:text-white">{title}</h3>
               )}
               {description && (
-                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>
+                <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5">{description}</p>
               )}
             </div>
             <button

@@ -4,6 +4,7 @@ import { VaultProvider } from './context/VaultContext';
 import { AuthView } from './features/auth/AuthView';
 import { UnlockView } from './features/auth/UnlockView';
 import { AppLayout } from './components/layout/AppLayout';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ShieldCheck, Loader2 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -26,25 +27,37 @@ const AppContent: React.FC = () => {
   }
 
   if (!isAuthenticated) {
-    return <AuthView />;
+    return (
+      <ErrorBoundary fallbackTitle="Authentication Error">
+        <AuthView />
+      </ErrorBoundary>
+    );
   }
 
   if (isLocked) {
-    return <UnlockView />;
+    return (
+      <ErrorBoundary fallbackTitle="Vault Unlock Error">
+        <UnlockView />
+      </ErrorBoundary>
+    );
   }
 
   return (
-    <VaultProvider>
-      <AppLayout />
-    </VaultProvider>
+    <ErrorBoundary fallbackTitle="Vault Application Error">
+      <VaultProvider>
+        <AppLayout />
+      </VaultProvider>
+    </ErrorBoundary>
   );
 };
 
 export function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ErrorBoundary fallbackTitle="Application Crash Error">
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 

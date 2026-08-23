@@ -28,17 +28,20 @@ class PerformanceTracker {
     const duration = Math.round((performance.now() - start) * 100) / 100;
     this.marks.delete(label);
 
+    this.recordMetric(label, duration);
+    return duration;
+  }
+
+  recordMetric(label: string, durationMs: number): void {
     this.metrics.push({
       name: label,
-      durationMs: duration,
+      durationMs,
       timestamp: Date.now(),
     });
 
     if (this.metrics.length > this.MAX_HISTORY) {
       this.metrics.shift();
     }
-
-    return duration;
   }
 
   getLatestMetric(label: string): number | null {

@@ -1,5 +1,6 @@
 /**
- * AegisVault Authentication & Cryptographic Context
+ * Surakshit Vault Authentication & Cryptographic Context
+ * Refactored to use typed apiClient and resilient error handling.
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
@@ -17,10 +18,17 @@ import { generateRecoveryPhrase, deriveRecoveryKek, wrapRecoveryVaultKey, unwrap
 import { sha256 } from '@noble/hashes/sha256';
 import { bytesToHex } from '../crypto/encoding';
 import { memoryStore } from '../storage/memory-store';
+import { apiClient, ApiClientError } from '../api/client';
 import { logger } from '../utils/logger';
 import type { AuthUser } from '../types/auth';
 import type { DecryptedVault } from '../types/vault';
-import type { PreloginResponse, LoginResponse, VaultResponse } from '../types/api';
+
+export interface RegisterOptions {
+  username: string;
+  email?: string;
+  masterPass: string;
+  enableRecovery?: boolean;
+}
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -30,18 +38,24 @@ interface AuthContextType {
   error: string | null;
   recoveryPhraseCreated: string | null;
   clearRecoveryPhraseModal: () => void;
-  login: (email: string, masterPass: string) => Promise<boolean>;
-  register: (email: string, masterPass: string, enableRecovery: boolean) => Promise<{ success: boolean; recoveryPhrase?: string }>;
+  login: (identifier: string, masterPass: string) => Promise<boolean>;
+  register: (
+    optionsOrUsername: string | RegisterOptions,
+    masterPassOrEmail?: string,
+    maybeMasterPass?: string,
+    maybeEnableRecovery?: boolean
+  ) => Promise<{ success: boolean; recoveryPhrase?: string }>;
+  addEmail: (email: string) => Promise<{ success: boolean; error?: string }>;
   unlock: (masterPass: string) => Promise<boolean>;
   lock: () => void;
   logout: () => Promise<void>;
-  recoverVault: (email: string, recoveryPhrase: string, newMasterPass: string) => Promise<boolean>;
+  recoverVault: (identifier: string, recoveryPhrase: string, newMasterPass: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
-function computeEmailLookupHash(email: string): string {
-  const normalized = email.trim().toLowerCase();
+export function computeLookupHash(identifier: string): string {
+  const normalized = identifier.trim().toLowerCase();
   const hash = sha256(utf8ToBytes(normalized));
   return bytesToHex(hash);
 }
@@ -65,10 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Fetch initial encrypted vault from server and decrypt into memory
   const fetchAndDecryptVault = useCallback(async (vek: Uint8Array) => {
     try {
-      const res = await fetch('/api/vault');
-      if (!res.ok) throw new Error('Failed to fetch vault from server');
-      const data = (await res.json()) as VaultResponse;
-
+      const data = await apiClient.vault.get();
       const iv = base64ToBytes(data.iv);
       const ciphertext = base64ToBytes(data.encryptedPayload);
       const decryptedBytes = await decryptAesGcm(ciphertext, vek, iv);
@@ -87,27 +98,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/auth/me');
-      if (res.ok) {
-        const data = (await res.json()) as any;
+      const data = await apiClient.auth.getMe();
+      if (data && data.user) {
+        const u = data.user;
         setUser({
-          id: data.user.id,
-          emailLookupHash: '',
-          kdfSalt: data.user.kdfSalt,
-          kdfParams: data.user.kdfParams,
-          encryptedVaultKey: JSON.parse(data.user.encryptedVaultKey),
-          hasRecoveryKey: data.user.hasRecoveryKey,
+          id: u.id,
+          username: u.username || 'User',
+          email: u.email || '',
+          emailLookupHash: u.email ? computeLookupHash(u.email) : '',
+          usernameLookupHash: computeLookupHash(u.username || ''),
+          kdfSalt: u.kdfSalt,
+          kdfParams: u.kdfParams,
+          encryptedVaultKey: JSON.parse(u.encryptedVaultKey),
+          hasRecoveryKey: u.hasRecoveryKey,
         });
         setIsAuthenticated(true);
-        setIsLocked(true); // Locked until user provides master password
+        setIsLocked(true); // Locked until user enters master password
       } else {
         setIsAuthenticated(false);
         setUser(null);
         setIsLocked(true);
       }
     } catch (err) {
-      logger.error('Check session error', err);
       setIsAuthenticated(false);
+      setUser(null);
+      setIsLocked(true);
     } finally {
       setIsLoading(false);
     }
@@ -117,21 +132,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkSession();
   }, [checkSession]);
 
-  // Login
-  const login = async (email: string, masterPass: string): Promise<boolean> => {
+  // Login: accepts either Email or Username in `identifier`
+  const login = async (identifier: string, masterPass: string): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
     try {
-      const emailLookupHash = computeEmailLookupHash(email);
+      const identifierLookupHash = computeLookupHash(identifier);
 
-      // 1. Prelogin fetch salt
-      const preRes = await fetch('/api/auth/prelogin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailLookupHash }),
+      // 1. Prelogin fetch salt via typed client
+      const preData = await apiClient.auth.prelogin({
+        identifierLookupHash,
+        emailLookupHash: identifierLookupHash,
       });
-      if (!preRes.ok) throw new Error('Pre-login request failed');
-      const preData = (await preRes.json()) as PreloginResponse;
 
       // 2. Client-side Key Derivation
       const { authKey, kek } = await deriveKeysFromMasterPassword(
@@ -142,18 +154,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const authProof = computeAuthVerifier(authKey);
 
-      // 3. Login verify
-      const loginRes = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailLookupHash, authProof }),
+      // 3. Login verify via typed client
+      const loginData = await apiClient.auth.login({
+        identifierLookupHash,
+        emailLookupHash: identifierLookupHash,
+        authProof,
       });
 
-      if (!loginRes.ok) {
-        throw new Error('Invalid email or master password');
-      }
-
-      const loginData = (await loginRes.json()) as LoginResponse;
       const wrappedKey = JSON.parse(loginData.user.encryptedVaultKey);
 
       // 4. Unwrap VEK
@@ -162,7 +169,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const authUser: AuthUser = {
         id: loginData.user.id,
-        emailLookupHash,
+        username: loginData.user.username || (identifier.includes('@') ? identifier.split('@')[0] : identifier),
+        email: loginData.user.email || '',
+        emailLookupHash: loginData.user.email ? computeLookupHash(loginData.user.email) : '',
+        usernameLookupHash: computeLookupHash(loginData.user.username || identifier),
         kdfSalt: loginData.user.kdfSalt,
         kdfParams: loginData.user.kdfParams,
         encryptedVaultKey: wrappedKey,
@@ -177,7 +187,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await fetchAndDecryptVault(vek);
       return true;
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Login failed';
+      const msg = err instanceof ApiClientError ? err.message : (err instanceof Error ? err.message : 'Login failed');
       setError(msg);
       logger.error('Login failed', err);
       return false;
@@ -186,16 +196,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Register
+  // Register: supports required username and optional email
   const register = async (
-    email: string,
-    masterPass: string,
-    enableRecovery: boolean
+    optionsOrUsername: string | RegisterOptions,
+    masterPassOrEmail?: string,
+    maybeMasterPass?: string,
+    maybeEnableRecovery?: boolean
   ): Promise<{ success: boolean; recoveryPhrase?: string }> => {
     setIsLoading(true);
     setError(null);
     try {
-      const emailLookupHash = computeEmailLookupHash(email);
+      let username = '';
+      let email: string | undefined = undefined;
+      let masterPass = '';
+      let enableRecovery = true;
+
+      if (typeof optionsOrUsername === 'object') {
+        username = optionsOrUsername.username;
+        email = optionsOrUsername.email ? optionsOrUsername.email.trim() : undefined;
+        masterPass = optionsOrUsername.masterPass;
+        enableRecovery = optionsOrUsername.enableRecovery ?? true;
+      } else if (maybeMasterPass !== undefined) {
+        username = optionsOrUsername;
+        email = masterPassOrEmail ? masterPassOrEmail.trim() : undefined;
+        masterPass = maybeMasterPass;
+        enableRecovery = maybeEnableRecovery ?? true;
+      } else {
+        username = optionsOrUsername;
+        masterPass = masterPassOrEmail || '';
+        enableRecovery = (maybeMasterPass as unknown as boolean) ?? true;
+      }
+
+      const usernameLookupHash = computeLookupHash(username);
+      const emailLookupHash = email ? computeLookupHash(email) : undefined;
       const salt = generateSalt(32);
       const saltBase64 = bytesToBase64(salt);
 
@@ -231,42 +264,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const initialJsonBytes = utf8ToBytes(JSON.stringify(initialVault));
       const { ciphertext: initialCiphertext, iv: initialIv } = await encryptAesGcm(initialJsonBytes, vek);
 
-      // 5. Send registration payload to backend
-      const res = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          emailLookupHash,
-          kdfSalt: saltBase64,
-          kdfParams,
-          authVerifier,
-          encryptedVaultKey: JSON.stringify(wrappedVEK),
-          encryptedRecoveryKey: wrappedRecoveryKey,
-          recoverySalt: recoverySaltBase64,
-          initialEncryptedVault: bytesToBase64(initialCiphertext),
-          initialIv: bytesToBase64(initialIv),
-        }),
+      // 5. Send registration payload via typed client
+      await apiClient.auth.register({
+        username,
+        usernameLookupHash,
+        email: email || undefined,
+        emailLookupHash: emailLookupHash || undefined,
+        kdfSalt: saltBase64,
+        kdfParams,
+        authVerifier,
+        encryptedVaultKey: JSON.stringify(wrappedVEK),
+        encryptedRecoveryKey: wrappedRecoveryKey,
+        recoverySalt: recoverySaltBase64,
+        initialEncryptedVault: bytesToBase64(initialCiphertext),
+        initialIv: bytesToBase64(initialIv),
       });
-
-      if (!res.ok) {
-        const errorData = (await res.json()) as any;
-        throw new Error(errorData.message || 'Registration failed');
-      }
 
       if (recoveryPhrase) {
         setRecoveryPhraseCreated(recoveryPhrase);
       }
 
-      // Automatically login
-      const loginSuccess = await login(email, masterPass);
+      // Automatically login with username
+      const loginSuccess = await login(username, masterPass);
       return { success: loginSuccess, recoveryPhrase };
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Registration failed';
+      const msg = err instanceof ApiClientError ? err.message : (err instanceof Error ? err.message : 'Registration failed');
       setError(msg);
       logger.error('Registration failed', err);
       return { success: false };
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Add/Update Email Later
+  const addEmail = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const emailLookupHash = computeLookupHash(email);
+      const res = await apiClient.auth.updateEmail({ email: email.trim(), emailLookupHash });
+
+      if (user) {
+        setUser({
+          ...user,
+          email: res.email,
+          emailLookupHash,
+        });
+      }
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof ApiClientError ? err.message : (err instanceof Error ? err.message : 'Failed to add email');
+      return { success: false, error: msg };
     }
   };
 
@@ -308,7 +355,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     setIsLoading(true);
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await apiClient.auth.logout();
     } catch (err) {
       logger.error('Logout error', err);
     } finally {
@@ -322,37 +369,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Recover vault using 24-word recovery phrase
   const recoverVault = async (
-    email: string,
+    identifier: string,
     recoveryPhrase: string,
     _newMasterPass: string
   ): Promise<boolean> => {
     setIsLoading(true);
     setError(null);
     try {
-      const emailLookupHash = computeEmailLookupHash(email);
-      const res = await fetch('/api/auth/recover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ emailLookupHash }),
+      const identifierLookupHash = computeLookupHash(identifier);
+      const resData = await apiClient.auth.recover({
+        identifierLookupHash,
+        emailLookupHash: identifierLookupHash,
       });
 
-      if (!res.ok) {
-        throw new Error('Account recovery material not found');
-      }
-
-      const resData = (await res.json()) as any;
       const wrappedBlob = JSON.parse(resData.encryptedRecoveryKey);
 
       // Unwrap VEK with recovery phrase
       const vek = await unwrapRecoveryVaultKey(recoveryPhrase, wrappedBlob, resData.recoverySalt);
 
-      // Re-register / reset credentials via login
       memoryStore.setVaultKey(vek);
       setIsLocked(false);
       setIsAuthenticated(true);
       return true;
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Recovery failed';
+      const msg = err instanceof ApiClientError ? err.message : (err instanceof Error ? err.message : 'Recovery failed');
       setError(msg);
       logger.error('Recovery failed', err);
       return false;
@@ -373,6 +413,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         clearRecoveryPhraseModal: () => setRecoveryPhraseCreated(null),
         login,
         register,
+        addEmail,
         unlock,
         lock,
         logout,

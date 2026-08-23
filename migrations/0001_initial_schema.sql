@@ -1,10 +1,13 @@
--- AegisVault Database Migration: 0001_initial_schema.sql
+-- Surakshit Vault Database Migration: 0001_initial_schema.sql
 -- Zero-knowledge schema for Cloudflare D1 (SQLite)
 
 -- 1. Users Table
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  email_lookup_hash TEXT UNIQUE NOT NULL,
+  username TEXT NOT NULL,
+  email TEXT,
+  email_lookup_hash TEXT,
+  username_lookup_hash TEXT NOT NULL,
   kdf_salt TEXT NOT NULL,
   kdf_params TEXT NOT NULL,
   auth_verifier TEXT NOT NULL,
@@ -15,7 +18,9 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at INTEGER NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_email_lookup ON users(email_lookup_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email_lookup ON users(email_lookup_hash) WHERE email_lookup_hash IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_lookup ON users(username_lookup_hash) WHERE username_lookup_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
 -- 2. Vaults Table (Active state)
 CREATE TABLE IF NOT EXISTS vaults (
