@@ -1,8 +1,8 @@
 {
-  "name": "aegisvault",
+  "name": "surakshit-vault",
   "version": "1.0.0",
   "private": true,
-  "description": "Zero-Knowledge Personal Password Vault built on React, TypeScript, Cloudflare Pages, Workers, and D1",
+  "description": "Surakshit Vault - Zero-Knowledge Personal Password Vault built on React, TypeScript, Cloudflare Pages, Workers, and D1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -13,9 +13,9 @@
     "typecheck": "tsc --noEmit && tsc --project tsconfig.worker.json --noEmit",
     "worker:dev": "wrangler dev",
     "worker:deploy": "wrangler deploy",
-    "pages:deploy": "npm run build && wrangler pages deploy dist --project-name=aegisvault",
-    "db:migrate:local": "wrangler d1 execute aegisvault-db --local --file=./migrations/0001_initial_schema.sql",
-    "db:migrate:remote": "wrangler d1 execute aegisvault-db --remote --file=./migrations/0001_initial_schema.sql"
+    "pages:deploy": "npm run build && wrangler pages deploy dist --project-name=surakshit-vault",
+    "db:migrate:local": "wrangler d1 execute surakshit-vault-db --local --file=./migrations/0001_initial_schema.sql",
+    "db:migrate:remote": "wrangler d1 execute surakshit-vault-db --remote --file=./migrations/0001_initial_schema.sql"
   },
   "dependencies": {
     "@noble/hashes": "^1.7.1",

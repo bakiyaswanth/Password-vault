@@ -1,16 +1,16 @@
-name = "aegisvault-api"
+name = "surakshit-vault-api"
 main = "worker/index.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "production"
-CORS_ORIGIN = "https://aegisvault.pages.dev"
+CORS_ORIGIN = "*"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "aegisvault-db"
-database_id = "local-aegisvault-db-id"
+database_name = "surakshit-vault-db"
+database_id = "surakshit-vault-db-id"
 migrations_dir = "migrations"
 
 [observability]
