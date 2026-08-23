@@ -5,10 +5,10 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 ENVIRONMENT = "production"
-CORS_ORIGIN = "*"
+CORS_ORIGIN = "https://surakshit-vault.pages.dev"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "surakshit-vault-db"
-database_id = "D1_DATABASE_ID_PLACEHOLDER"
+database_id = "eb112eb8-dd26-4b08-869c-3b998484ebe6"
 migrations_dir = "migrations"
