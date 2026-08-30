@@ -85,10 +85,10 @@ const ItemRow = React.memo(
           onSelect(item);
           perfTracker.endMeasure('item_selection_latency');
         }}
-        className={`w-full text-left p-3.5 transition-all flex items-start gap-3 cursor-pointer group select-none ${
+        className={`w-full text-left p-3.5 transition-all flex items-start gap-3 cursor-pointer group ${
           isSelected
-            ? 'bg-vault-50 dark:bg-vault-950/50 border-l-4 border-l-vault-600 dark:border-l-vault-400'
-            : 'hover:bg-white dark:hover:bg-gray-900 border-l-4 border-l-transparent'
+            ? 'bg-vault-50 dark:bg-vault-950/80 border-l-4 border-l-vault-600 dark:border-l-vault-400'
+            : 'hover:bg-white dark:hover:bg-gray-800 border-l-4 border-l-transparent'
         }`}
       >
         {/* Selection Checkbox (Proton Pass & Bitwarden style) */}
@@ -199,7 +199,7 @@ export const ItemList: React.FC<ItemListProps> = ({
   );
 
   return (
-    <div className="h-full flex flex-col border-r border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-950/40 relative select-none">
+    <div className="h-full flex flex-col border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 relative">
       {/* Search & Header */}
       <div className="p-3.5 border-b border-gray-200 dark:border-gray-800 space-y-2.5">
         <div className="flex items-center gap-2">

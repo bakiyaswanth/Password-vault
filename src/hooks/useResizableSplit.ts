@@ -34,9 +34,13 @@ export function useResizableSplit({
   const [isMaximized, setIsMaximized] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const previousWidthRef = useRef<number>(listWidth);
+  const rafRef = useRef<number | null>(null);
+  const latestWidthRef = useRef<number>(listWidth);
 
-  // Start dragging handler
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+  latestWidthRef.current = listWidth;
+
+  // Start dragging handler (supports Mouse and Touch)
+  const handleMouseDown = useCallback((e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     setIsDragging(true);
   }, []);
@@ -45,13 +49,12 @@ export function useResizableSplit({
   const handleToggleMaximize = useCallback(() => {
     if (isMaximized) {
       // Restore
-      setListWidth(previousWidthRef.current || defaultWidth);
+      const restored = previousWidthRef.current || defaultWidth;
+      setListWidth(restored);
       setIsMaximized(false);
       try {
-        localStorage.setItem(storageKey, (previousWidthRef.current || defaultWidth).toString());
-      } catch {
-        // Ignored
-      }
+        localStorage.setItem(storageKey, restored.toString());
+      } catch {}
     } else {
       // Maximize detail (shrink list to minimum)
       previousWidthRef.current = listWidth;
@@ -59,56 +62,83 @@ export function useResizableSplit({
       setIsMaximized(true);
       try {
         localStorage.setItem(storageKey, minWidth.toString());
-      } catch {
-        // Ignored
-      }
+      } catch {}
     }
   }, [isMaximized, listWidth, minWidth, defaultWidth, storageKey]);
 
   useEffect(() => {
     if (!isDragging) return;
 
-    // Add drag-active styles to body to prevent text selection and keep col-resize cursor
+    // Super smooth drag: lock cursor, prevent text selection
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
+    document.body.classList.add('resizing-active');
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const updateWidth = (clientX: number) => {
       if (!containerRef.current) return;
       const containerRect = containerRef.current.getBoundingClientRect();
-      const rawWidth = e.clientX - containerRect.left;
+      const rawWidth = clientX - containerRect.left;
 
       const dynamicMaxWidth = Math.min(maxWidth, containerRect.width - minDetailWidth);
       const clampedWidth = Math.max(minWidth, Math.min(rawWidth, dynamicMaxWidth));
 
-      setListWidth(clampedWidth);
-      if (clampedWidth > minWidth) {
-        setIsMaximized(false);
+      // Batch via requestAnimationFrame for silky 60fps/120fps hardware-accelerated tracking
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
+
+      rafRef.current = requestAnimationFrame(() => {
+        setListWidth(clampedWidth);
+        if (clampedWidth > minWidth) {
+          setIsMaximized(false);
+        }
+      });
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      updateWidth(e.clientX);
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (e.touches.length > 0) {
+        updateWidth(e.touches[0].clientX);
       }
     };
 
-    const handleMouseUp = () => {
+    const handleEnd = () => {
       setIsDragging(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      document.body.classList.remove('resizing-active');
+
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
 
       // Persist user preference
       try {
-        localStorage.setItem(storageKey, listWidth.toString());
-      } catch {
-        // Ignored
-      }
+        localStorage.setItem(storageKey, latestWidthRef.current.toString());
+      } catch {}
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('mousemove', handleMouseMove, { passive: true });
+    window.addEventListener('mouseup', handleEnd);
+    window.addEventListener('touchmove', handleTouchMove, { passive: true });
+    window.addEventListener('touchend', handleEnd);
 
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mouseup', handleEnd);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleEnd);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      document.body.classList.remove('resizing-active');
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+      }
     };
-  }, [isDragging, listWidth, minWidth, maxWidth, minDetailWidth, storageKey]);
+  }, [isDragging, minWidth, maxWidth, minDetailWidth, storageKey]);
 
   return {
     listWidth,

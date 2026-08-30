@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Upload,
   CheckCircle2,
@@ -8,6 +8,7 @@ import {
   RefreshCw,
   RotateCcw,
   ShieldCheck,
+  FileUp,
 } from 'lucide-react';
 import { Modal } from '../../components/common/Modal';
 import { Button } from '../../components/common/Button';
@@ -33,6 +34,8 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
   const [selectedFormat, setSelectedFormat] = useState<ImportExportFormat>('bitwarden-json');
   const [fileContent, setFileContent] = useState<string>('');
   const [fileName, setFileName] = useState<string>('');
+  const [fileSize, setFileSize] = useState<string>('');
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
   const [encryptedPassword, setEncryptedPassword] = useState<string>('');
   const [overwriteDuplicates, setOverwriteDuplicates] = useState<boolean>(false);
   const [parsedPreview, setParsedPreview] = useState<DetailedImportResult | null>(null);
@@ -50,11 +53,15 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
     failedItems: any[];
   } | null>(null);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const processFile = (file: File) => {
     setFileName(file.name);
+    setFileSize(
+      file.size > 1024 * 1024
+        ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
+        : `${(file.size / 1024).toFixed(1)} KB`
+    );
     setError(null);
     setParsedPreview(null);
     setFinalReport(null);
@@ -86,6 +93,35 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
       }
     };
     reader.readAsText(file);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processFile(file);
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processFile(file);
+    }
   };
 
   const handleExecuteImport = async () => {
@@ -196,6 +232,8 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
       onClose={() => {
         setFinalReport(null);
         setFileContent('');
+        setFileName('');
+        setFileSize('');
         setParsedPreview(null);
         setError(null);
         setImportProgress(0);
@@ -236,20 +274,61 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
         {!finalReport && (
           <div>
             <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-              Select Exported File
+              Select File
             </label>
-            <div className="border-2 border-dashed border-gray-200 dark:border-gray-800 rounded-xl p-5 text-center hover:border-vault-500 transition-colors bg-gray-50/50 dark:bg-gray-950/40">
-              <Upload className="w-7 h-7 text-vault-600 dark:text-vault-400 mx-auto mb-2" />
-              <input
-                type="file"
-                accept=".json,.csv,.aegisvault,.surakshit,.txt"
-                onChange={handleFileChange}
-                className="text-xs text-gray-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-vault-50 file:text-vault-700 hover:file:bg-vault-100 dark:file:bg-vault-950 dark:file:text-vault-300 cursor-pointer"
-              />
-              {fileName && (
-                <p className="text-xs font-mono font-semibold text-vault-600 dark:text-vault-400 mt-2 flex items-center justify-center gap-1.5">
-                  <FileCheck className="w-4 h-4" /> Selected: {fileName}
-                </p>
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,.csv,.aegisvault,.surakshit,.txt"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer group ${
+                isDragOver
+                  ? 'border-vault-500 bg-vault-50/80 dark:bg-vault-950/60 ring-2 ring-vault-400/30'
+                  : fileName
+                  ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/40 dark:bg-emerald-950/20 hover:border-emerald-400'
+                  : 'border-gray-300 dark:border-gray-700 hover:border-vault-500 dark:hover:border-vault-400 bg-gray-50/60 dark:bg-gray-950/40 hover:bg-white dark:hover:bg-gray-900/60'
+              }`}
+            >
+              {fileName ? (
+                <div className="space-y-2">
+                  <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                    <FileCheck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-gray-900 dark:text-white font-mono">
+                      {fileName}
+                    </p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      {fileSize} • Click anywhere to choose a different file
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="w-10 h-10 rounded-full bg-vault-100 dark:bg-vault-950/60 text-vault-600 dark:text-vault-400 flex items-center justify-center mx-auto group-hover:scale-110 transition-transform">
+                    <FileUp className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+                      Browse your file
+                    </p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+                      or drag and drop your file here
+                    </p>
+                  </div>
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wider font-mono pt-1">
+                    Supports .json, .csv, .surakshit, .aegisvault
+                  </p>
+                </div>
               )}
             </div>
           </div>
@@ -452,7 +531,10 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
             onClick={() => {
               setFinalReport(null);
               setFileContent('');
+              setFileName('');
+              setFileSize('');
               setParsedPreview(null);
+              setError(null);
               onClose();
             }}
           >

@@ -23,7 +23,7 @@ export interface HeaderProps {
   onOpenSettings: () => void;
   onOpenDashboard: () => void;
   isDarkMode: boolean;
-  onToggleDarkMode: () => void;
+  onToggleDarkMode: (e?: React.MouseEvent) => void;
   isSettingsOpen: boolean;
 }
 
@@ -98,13 +98,29 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline">Generator</span>
         </Button>
 
+        {/* Animated Sun / Moon Theme Toggle */}
         <button
           type="button"
           onClick={onToggleDarkMode}
-          className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-gray-400 transition-colors"
+          className="relative p-2 rounded-xl text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 dark:text-gray-400 transition-all active:scale-90 group"
           title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
         >
-          {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          <div className="relative w-4 h-4 flex items-center justify-center">
+            <Sun
+              className={`w-4 h-4 text-amber-500 absolute transition-all duration-300 ease-out transform ${
+                isDarkMode
+                  ? 'rotate-0 scale-100 opacity-100'
+                  : '-rotate-90 scale-0 opacity-0'
+              }`}
+            />
+            <Moon
+              className={`w-4 h-4 text-vault-600 dark:text-vault-400 absolute transition-all duration-300 ease-out transform ${
+                isDarkMode
+                  ? 'rotate-90 scale-0 opacity-0'
+                  : 'rotate-0 scale-100 opacity-100'
+              }`}
+            />
+          </div>
         </button>
 
         <button

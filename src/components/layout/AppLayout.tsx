@@ -1,4 +1,5 @@
-import React, { useState, lazy, Suspense } from 'react';
+import React, { useState, lazy, Suspense, useCallback, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
@@ -70,10 +71,18 @@ export const AppLayout: React.FC = () => {
   const [autoLockMinutes, setAutoLockMinutes] = useState<AutoLockTimeout>(5);
   const [lockOnBlur, setLockOnBlur] = useState<boolean>(false);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('surakshit_theme');
+      if (saved) return saved === 'dark';
+    } catch {}
     return (
-      window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+      typeof window !== 'undefined' &&
+      window.matchMedia &&
+      window.matchMedia('(prefers-color-scheme: dark)').matches
     );
   });
+
+  const isTransitioningRef = useRef(false);
 
   // Resizable split-panel hook for list and detail view
   const {
@@ -104,7 +113,7 @@ export const AppLayout: React.FC = () => {
   // Auto-lock hook
   useAutoLock(autoLockMinutes, lockOnBlur, lock);
 
-  // Dark mode effect
+  // Sync DOM with theme state immediately on mount
   React.useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -112,6 +121,96 @@ export const AppLayout: React.FC = () => {
       document.documentElement.classList.remove('dark');
     }
   }, [isDarkMode]);
+
+  // Premium Circular Reveal View Transition API
+  const handleToggleTheme = useCallback(
+    (event?: React.MouseEvent) => {
+      if (isTransitioningRef.current) return;
+
+      const nextDark = !isDarkMode;
+
+      // Fallback for browsers without View Transition API or when user prefers reduced motion
+      const isViewTransitionSupported =
+        typeof document !== 'undefined' &&
+        'startViewTransition' in document &&
+        !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      if (!isViewTransitionSupported) {
+        setIsDarkMode(nextDark);
+        if (nextDark) {
+          document.documentElement.classList.add('dark');
+        } else {
+          document.documentElement.classList.remove('dark');
+        }
+        try {
+          localStorage.setItem('surakshit_theme', nextDark ? 'dark' : 'light');
+        } catch {}
+        return;
+      }
+
+      // Calculate toggle button coordinates for circular ripple origin
+      const toggleButton =
+        (event?.currentTarget as HTMLElement) ||
+        (event?.target as HTMLElement) ||
+        document.querySelector('button[title*="Mode"]') as HTMLElement;
+
+      const rect = toggleButton ? toggleButton.getBoundingClientRect() : null;
+      const x = rect ? rect.left + rect.width / 2 : window.innerWidth / 2;
+      const y = rect ? rect.top + rect.height / 2 : 0;
+
+      // Maximum radius to cover entire viewport
+      const maxRadius = Math.hypot(
+        Math.max(x, window.innerWidth - x),
+        Math.max(y, window.innerHeight - y)
+      );
+
+      isTransitioningRef.current = true;
+
+      const transition = (document as any).startViewTransition(() => {
+        flushSync(() => {
+          setIsDarkMode(nextDark);
+          if (nextDark) {
+            document.documentElement.classList.add('dark');
+          } else {
+            document.documentElement.classList.remove('dark');
+          }
+          try {
+            localStorage.setItem('surakshit_theme', nextDark ? 'dark' : 'light');
+          } catch {}
+        });
+      });
+
+      transition.ready
+        .then(() => {
+          const animation = document.documentElement.animate(
+            {
+              clipPath: [
+                `circle(0px at ${x}px ${y}px)`,
+                `circle(${maxRadius}px at ${x}px ${y}px)`,
+              ],
+            },
+            {
+              duration: 550,
+              easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+              fill: 'forwards',
+              pseudoElement: '::view-transition-new(root)',
+            }
+          );
+
+          animation.finished.finally(() => {
+            isTransitioningRef.current = false;
+          });
+        })
+        .catch(() => {
+          isTransitioningRef.current = false;
+        });
+
+      transition.finished.finally(() => {
+        isTransitioningRef.current = false;
+      });
+    },
+    [isDarkMode]
+  );
 
   const handleOpenNewItem = () => {
     setEditingItem(null);
@@ -137,7 +236,7 @@ export const AppLayout: React.FC = () => {
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col overflow-hidden bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans select-none">
+    <div className="h-screen w-screen flex flex-col overflow-hidden bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans">
       {/* Top Application Header */}
       <Header
         onOpenGenerator={() => setIsGeneratorOpen(true)}
@@ -148,7 +247,7 @@ export const AppLayout: React.FC = () => {
         }}
         onOpenDashboard={() => setIsDashboardOpen(true)}
         isDarkMode={isDarkMode}
-        onToggleDarkMode={() => setIsDarkMode(!isDarkMode)}
+        onToggleDarkMode={handleToggleTheme}
         isSettingsOpen={isSettingsOpen}
       />
 
@@ -191,7 +290,7 @@ export const AppLayout: React.FC = () => {
               style={{
                 width: typeof window !== 'undefined' && window.innerWidth >= 768 ? `${listWidth}px` : undefined,
               }}
-              className={`w-full md:shrink-0 h-full ${
+              className={`w-full md:shrink-0 h-full bg-gray-50 dark:bg-gray-900 ${
                 selectedItem ? 'hidden md:block' : 'block'
               }`}
             >
@@ -217,7 +316,7 @@ export const AppLayout: React.FC = () => {
 
             {/* Item Detail Column */}
             <div
-              className={`flex-1 h-full overflow-hidden ${
+              className={`flex-1 h-full overflow-hidden bg-white dark:bg-gray-900 ${
                 !selectedItem ? 'hidden md:block' : 'block'
               }`}
             >

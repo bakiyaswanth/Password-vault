@@ -101,7 +101,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
   const pinKey = `${item.id}:pin`;
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto bg-white dark:bg-gray-900 p-6 select-none">
+    <div className="h-full flex flex-col overflow-y-auto bg-white dark:bg-gray-900 p-6">
       {/* Header */}
       <div className="flex items-start justify-between pb-6 border-b border-gray-100 dark:border-gray-800">
         <div className="flex items-center gap-4">
