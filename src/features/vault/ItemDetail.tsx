@@ -21,6 +21,7 @@ import { Button } from '../../components/common/Button';
 import { Badge } from '../../components/common/Badge';
 import { TotpDisplay } from '../totp/TotpDisplay';
 import { useClipboard } from '../../hooks/useClipboard';
+import { useVault } from '../../context/VaultContext';
 import type { VaultItem } from '../../types/vault';
 
 export interface ItemDetailProps {
@@ -42,6 +43,15 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
   const [showCvv, setShowCvv] = useState(false);
   const [showPin, setShowPin] = useState(false);
   const { copyToClipboard, isCopied, secondsLeft, resetVisualState } = useClipboard(30);
+  const { recordItemUsage, items: vaultItems } = useVault();
+  // selectedItem is a snapshot; read usage from the live vault so "Last used" reflects the open/copy just made.
+  const liveLastUsedAt = item ? vaultItems.find((i) => i.id === item.id)?.lastUsedAt ?? item.lastUsedAt : undefined;
+
+  // Copying a credential counts as using the item (boosts it in search, like Proton Pass).
+  const copyAndTrack = (text: string, key: string) => {
+    copyToClipboard(text, key);
+    if (item) recordItemUsage(item.id);
+  };
 
   // Clean slate reset whenever selected item ID changes or item is deselected
   useEffect(() => {
@@ -202,7 +212,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
             {/* Click-to-Copy Username Field */}
             {item.username && (
               <div
-                onClick={() => copyToClipboard(item.username, usernameKey)}
+                onClick={() => copyAndTrack(item.username, usernameKey)}
                 className={`p-3.5 rounded-xl border transition-all cursor-pointer group flex items-center justify-between select-none ${
                   isCopied(usernameKey)
                     ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 shadow-sm'
@@ -243,7 +253,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
             {/* Click-to-Copy Password Field */}
             {item.password && (
               <div
-                onClick={() => copyToClipboard(item.password, passwordKey)}
+                onClick={() => copyAndTrack(item.password, passwordKey)}
                 className={`p-3.5 rounded-xl border transition-all cursor-pointer group flex items-center justify-between select-none ${
                   isCopied(passwordKey)
                     ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-700 shadow-sm'
@@ -310,7 +320,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
                   return (
                     <div
                       key={idx}
-                      onClick={() => copyToClipboard(u, urlKey)}
+                      onClick={() => copyAndTrack(u, urlKey)}
                       className="flex items-center justify-between p-3 rounded-lg bg-gray-50 dark:bg-gray-800/40 border border-gray-100 dark:border-gray-800 text-xs cursor-pointer hover:border-vault-400 hover:bg-white dark:hover:bg-gray-800 transition-all group select-none"
                       title="Click to copy URL"
                     >
@@ -408,7 +418,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
         {item.type === 'card' && (
           <div className="space-y-4">
             <div
-              onClick={() => copyToClipboard(item.cardNumber, cardNumKey)}
+              onClick={() => copyAndTrack(item.cardNumber, cardNumKey)}
               className="p-6 rounded-2xl bg-gradient-to-br from-vault-800 to-vault-950 text-white shadow-lg space-y-6 cursor-pointer hover:ring-2 hover:ring-vault-400 transition-all group select-none"
               title="Click to copy card number"
             >
@@ -441,7 +451,7 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
 
             <div className="grid grid-cols-2 gap-3">
               <div
-                onClick={() => copyToClipboard(item.cvv, cvvKey)}
+                onClick={() => copyAndTrack(item.cvv, cvvKey)}
                 className="p-3.5 rounded-xl bg-gray-50 dark:bg-gray-800/50 border border-gray-100 dark:border-gray-800 flex items-center justify-between cursor-pointer hover:border-vault-300 transition-all select-none"
                 title="Click to copy CVV"
               >
@@ -621,7 +631,8 @@ export const ItemDetail: React.FC<ItemDetailProps> = ({
         )}
 
         {/* Timestamps */}
-        <div className="pt-6 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between text-[11px] text-gray-400">
+        <div className="pt-6 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-[11px] text-gray-400">
+          <span>Last used: {liveLastUsedAt ? formattedDate(liveLastUsedAt) : 'Never'}</span>
           <span>Created: {formattedDate(item.createdAt)}</span>
           <span>Updated: {formattedDate(item.updatedAt)}</span>
         </div>

@@ -65,6 +65,7 @@ export const AppLayout: React.FC = () => {
     restoreItem,
     toggleFavorite,
     folders,
+    recordItemUsage,
   } = useVault();
 
   // Settings & Auto-lock configuration
@@ -297,7 +298,10 @@ export const AppLayout: React.FC = () => {
               <ItemList
                 items={filteredItems}
                 selectedItem={selectedItem}
-                onSelectItem={(item) => setSelectedItem(item)}
+                onSelectItem={(item) => {
+                  setSelectedItem(item);
+                  recordItemUsage(item.id);
+                }}
                 onAddNewItem={handleOpenNewItem}
                 searchQuery={searchQuery}
                 onSearchChange={setSearchQuery}

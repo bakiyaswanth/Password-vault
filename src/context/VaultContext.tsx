@@ -3,13 +3,14 @@
  * Implements in-memory indexing, category bucketing, instant search caching, and atomic batch sync via typed apiClient.
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { memoryStore } from '../storage/memory-store';
 import { encryptAesGcm, decryptAesGcm } from '../crypto/aes';
 import { bytesToBase64, base64ToBytes, bytesToUtf8, utf8ToBytes } from '../crypto/encoding';
 import { createEncryptedBackup, restoreEncryptedBackup } from '../crypto/backup';
 import { computeItemFingerprint } from '../utils/importers';
 import { perfTracker } from '../utils/performance';
+import { rankSearchResults, applyUsage, type ItemUsage } from '../utils/search-ranking';
 import { apiClient, ApiClientError } from '../api/client';
 import { logger } from '../utils/logger';
 import type { VaultItem, DecryptedVault } from '../types/vault';
@@ -57,6 +58,8 @@ interface VaultContextType {
   toggleFavorite: (id: string) => Promise<void>;
   addFolder: (name: string) => Promise<void>;
   syncVault: () => Promise<boolean>;
+  /** Record that an item was opened or a credential copied; boosts it in search. Synced lazily. */
+  recordItemUsage: (id: string) => void;
   resolveConflict: (choice: 'local' | 'remote' | 'merge') => Promise<void>;
   exportEncryptedBackup: (backupPassword: string) => Promise<string>;
   importEncryptedBackup: (backupJson: string, backupPassword: string) => Promise<void>;
@@ -78,6 +81,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     serverItems?: VaultItem[];
   } | null>(null);
 
+  // Usage tracking is synced lazily so copying a password doesn't upload the vault every time.
+  const usageSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncInFlightRef = useRef<boolean>(false);
+
   // Subscribe to memoryStore updates
   useEffect(() => {
     const unsubscribe = memoryStore.subscribe(() => {
@@ -85,6 +92,10 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setVaultData(currentVault);
       if (!currentVault) {
         setSelectedItem(null);
+        if (usageSyncTimerRef.current) {
+          clearTimeout(usageSyncTimerRef.current);
+          usageSyncTimerRef.current = null;
+        }
       }
     });
     return unsubscribe;
@@ -92,6 +103,17 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const items = useMemo(() => vaultData?.items ?? [], [vaultData]);
   const folders = useMemo(() => vaultData?.folders ?? [], [vaultData]);
+
+  // Usage snapshot taken when the query changes, so results don't reshuffle
+  // underneath the user while they open/copy from the current result list.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const usageSnapshot = useMemo(() => {
+    const snap = new Map<string, ItemUsage>();
+    for (const i of itemsRef.current) snap.set(i.id, { lastUsedAt: i.lastUsedAt, useCount: i.useCount });
+    return snap;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   // Search Index
   const indexedItems = useMemo<IndexedItem[]>(() => {
@@ -190,14 +212,12 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (!cleanQuery) {
       resultItems = pool.map((e) => e.item);
     } else {
-      resultItems = pool
-        .filter((entry) => entry.searchStr.includes(cleanQuery))
-        .map((entry) => entry.item);
+      resultItems = rankSearchResults(pool, cleanQuery, Date.now(), (item) => usageSnapshot.get(item.id) ?? item);
     }
 
     perfTracker.endMeasure('search_query_eval');
     return resultItems;
-  }, [categoryBuckets, selectedCategory, selectedFolder, searchQuery]);
+  }, [categoryBuckets, selectedCategory, selectedFolder, searchQuery, usageSnapshot]);
 
   // Synchronize encrypted vault via typed apiClient
   const syncVault = useCallback(async (): Promise<boolean> => {
@@ -207,6 +227,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     if (!vek || !vault) return false;
 
+    syncInFlightRef.current = true;
     setIsSyncing(true);
     setSyncError(null);
 
@@ -256,9 +277,37 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       logger.error('Vault synchronization failed', err);
       return false;
     } finally {
+      syncInFlightRef.current = false;
       setIsSyncing(false);
     }
   }, []);
+
+  // Lazy usage sync: flush after a quiet period, and avoid racing an in-flight sync (409).
+  const scheduleUsageSync = useCallback(() => {
+    if (usageSyncTimerRef.current) clearTimeout(usageSyncTimerRef.current);
+    usageSyncTimerRef.current = setTimeout(function flush() {
+      if (syncInFlightRef.current) {
+        usageSyncTimerRef.current = setTimeout(flush, 2000);
+        return;
+      }
+      usageSyncTimerRef.current = null;
+      void syncVault();
+    }, 10000);
+  }, [syncVault]);
+
+  const recordItemUsage = useCallback(
+    (id: string) => {
+      if (!memoryStore.getVault()) return;
+      const now = Date.now();
+      // Usage is not an edit: leave item.updatedAt alone so it never wins conflict merges over real edits.
+      memoryStore.updateItems((prev) => ({
+        ...prev,
+        items: prev.items.map((item) => (item.id === id ? applyUsage(item, now) : item)),
+      }));
+      scheduleUsageSync();
+    },
+    [scheduleUsageSync]
+  );
 
   // Conflict Resolution
   const resolveConflict = async (choice: 'local' | 'remote' | 'merge') => {
@@ -380,11 +429,18 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Update Item
   const updateItem = async (updated: VaultItem) => {
     const now = Date.now();
-    const itemWithTime = { ...updated, updatedAt: now };
+    let itemWithTime: VaultItem = { ...updated, updatedAt: now };
 
     memoryStore.updateItems((prev) => ({
       ...prev,
-      items: prev.items.map((item) => (item.id === updated.id ? itemWithTime : item)),
+      items: prev.items.map((item) => {
+        if (item.id !== updated.id) return item;
+        // The edited copy may predate usage recorded since it was opened; keep the newer stats.
+        if ((item.lastUsedAt || 0) > (updated.lastUsedAt || 0)) {
+          itemWithTime = { ...itemWithTime, lastUsedAt: item.lastUsedAt, useCount: item.useCount };
+        }
+        return itemWithTime;
+      }),
       updatedAt: now,
     }));
 
@@ -588,6 +644,7 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         toggleFavorite,
         addFolder,
         syncVault,
+        recordItemUsage,
         resolveConflict,
         exportEncryptedBackup,
         importEncryptedBackup,

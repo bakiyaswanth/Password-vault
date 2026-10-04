@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useRef } from 'react';
 import {
   Search,
   Key,
@@ -19,6 +19,7 @@ import { Button } from '../../components/common/Button';
 import { BulkDeleteModal } from './BulkDeleteModal';
 import { useVault } from '../../context/VaultContext';
 import { perfTracker } from '../../utils/performance';
+import { groupByRecency } from '../../utils/recency-groups';
 import type { VaultItem } from '../../types/vault';
 
 export interface ItemListProps {
@@ -153,16 +154,42 @@ export const ItemList: React.FC<ItemListProps> = ({
   const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false);
   const [isMoveFolderDropdownOpen, setIsMoveFolderDropdownOpen] = useState(false);
 
-  const isAllSelected = items.length > 0 && items.every((i) => selectedIds.has(i.id));
+  // All / Recent tabs (Proton Pass style). Search results are always relevance-ranked, so tabs hide while searching.
+  const [viewMode, setViewMode] = useState<'all' | 'recent'>('all');
+  const showTabs = !searchQuery.trim() && activeCategory !== 'trash';
+  const isRecentView = showTabs && viewMode === 'recent';
+
+  // Freeze last-used times when the Recent tab opens so opening an item doesn't jump it to the top mid-browse.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const recentSnapshot = useMemo(() => {
+    const snap = new Map<string, number | undefined>();
+    if (isRecentView) for (const i of itemsRef.current) snap.set(i.id, i.lastUsedAt);
+    return snap;
+  }, [isRecentView]);
+
+  const recentGroups = useMemo(
+    () =>
+      isRecentView
+        ? groupByRecency(items, Date.now(), (i) => (recentSnapshot.has(i.id) ? recentSnapshot.get(i.id) : i.lastUsedAt))
+        : [],
+    [isRecentView, items, recentSnapshot]
+  );
+  const visibleItems = useMemo(
+    () => (isRecentView ? recentGroups.flatMap((g) => g.items) : items),
+    [isRecentView, recentGroups, items]
+  );
+
+  const isAllSelected = visibleItems.length > 0 && visibleItems.every((i) => selectedIds.has(i.id));
   const isPartiallySelected = selectedIds.size > 0 && !isAllSelected;
 
   const handleToggleSelectAll = useCallback(() => {
     if (isAllSelected) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(items.map((i) => i.id)));
+      setSelectedIds(new Set(visibleItems.map((i) => i.id)));
     }
-  }, [isAllSelected, items]);
+  }, [isAllSelected, visibleItems]);
 
   const handleToggleItemCheckbox = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -230,6 +257,27 @@ export const ItemList: React.FC<ItemListProps> = ({
           </button>
         </div>
 
+        {showTabs && (
+          <div className="flex items-center gap-1.5" role="tablist">
+            {(['all', 'recent'] as const).map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                role="tab"
+                aria-selected={viewMode === mode}
+                onClick={() => setViewMode(mode)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ${
+                  viewMode === mode
+                    ? 'bg-vault-600 text-white dark:bg-vault-500'
+                    : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:text-gray-900 dark:hover:text-white'
+                }`}
+              >
+                {mode === 'all' ? `All (${items.length})` : 'Recent'}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Selection Bar / Category Filter Header */}
         <div className="flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400 px-0.5">
           <div className="flex items-center gap-2">
@@ -248,7 +296,7 @@ export const ItemList: React.FC<ItemListProps> = ({
               )}
               <span className="capitalize font-semibold">{activeCategory}</span>
             </button>
-            <span className="font-mono">({items.length})</span>
+            <span className="font-mono">({visibleItems.length})</span>
           </div>
 
           {selectedIds.size > 0 && (
@@ -340,7 +388,35 @@ export const ItemList: React.FC<ItemListProps> = ({
 
       {/* High-Performance Items Scrollable List with Row-Level Memoization */}
       <div className="flex-1 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800/60 will-change-scroll">
-        {items.length === 0 ? (
+        {isRecentView ? (
+          recentGroups.length === 0 ? (
+            <div className="p-8 text-center text-xs text-gray-400">
+              <p>No recently used items yet.</p>
+              <p className="mt-1">Items you open or copy from will appear here.</p>
+            </div>
+          ) : (
+            recentGroups.map((group) => (
+              <section key={group.label}>
+                <h3 className="sticky top-0 z-[1] px-3.5 pt-3 pb-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400 bg-gray-50/95 dark:bg-gray-900/95 backdrop-blur-sm">
+                  {group.label}
+                </h3>
+                <div className="divide-y divide-gray-100 dark:divide-gray-800/60">
+                  {group.items.map((item) => (
+                    <ItemRow
+                      key={item.id}
+                      item={item}
+                      isSelected={selectedItem?.id === item.id}
+                      isChecked={selectedIds.has(item.id)}
+                      onSelect={onSelectItem}
+                      onToggleCheck={handleToggleItemCheckbox}
+                      hasActiveSelection={selectedIds.size > 0}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))
+          )
+        ) : items.length === 0 ? (
           <div className="p-8 text-center text-xs text-gray-400 space-y-3">
             <p>No items found.</p>
             {activeCategory !== 'trash' && (

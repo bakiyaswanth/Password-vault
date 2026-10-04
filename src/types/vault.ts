@@ -14,6 +14,10 @@ export interface BaseItem {
   trash: boolean;
   createdAt: number;
   updatedAt: number;
+  /** Last time the item was opened or a credential was copied (ms epoch). Not an edit, so updatedAt is untouched. */
+  lastUsedAt?: number;
+  /** Number of recorded uses; used with lastUsedAt to rank search results. */
+  useCount?: number;
 }
 
 export interface CustomField {
