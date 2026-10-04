@@ -108,6 +108,26 @@ input[type='range']::-moz-range-thumb:hover {
 }
 
 /* View Transition Root Animation Configuration */
+/*
+ * While the theme flips, suppress per-element color transitions. Otherwise elements with
+ * transition-colors/transition-all fade from light → dark values inside the live
+ * ::view-transition-new snapshot, which shows up as white borders/lines flashing during the reveal.
+ */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
+}
+
+/* Native UI (scrollbars, form controls, autofill) follows the active theme */
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation: none;

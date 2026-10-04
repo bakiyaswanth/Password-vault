@@ -137,15 +137,20 @@ export const AppLayout: React.FC = () => {
         !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
       if (!isViewTransitionSupported) {
+        const root = document.documentElement;
+        root.classList.add('theme-switching');
         setIsDarkMode(nextDark);
         if (nextDark) {
-          document.documentElement.classList.add('dark');
+          root.classList.add('dark');
         } else {
-          document.documentElement.classList.remove('dark');
+          root.classList.remove('dark');
         }
         try {
           localStorage.setItem('surakshit_theme', nextDark ? 'dark' : 'light');
         } catch {}
+        // Force style recalc with transitions off, then re-enable them after the next paint.
+        void root.offsetHeight;
+        requestAnimationFrame(() => requestAnimationFrame(() => root.classList.remove('theme-switching')));
         return;
       }
 
@@ -166,6 +171,9 @@ export const AppLayout: React.FC = () => {
       );
 
       isTransitioningRef.current = true;
+
+      // Kill per-element color transitions so the "new" snapshot is already fully themed.
+      document.documentElement.classList.add('theme-switching');
 
       const transition = (document as any).startViewTransition(() => {
         flushSync(() => {
@@ -207,6 +215,7 @@ export const AppLayout: React.FC = () => {
         });
 
       transition.finished.finally(() => {
+        document.documentElement.classList.remove('theme-switching');
         isTransitioningRef.current = false;
       });
     },
