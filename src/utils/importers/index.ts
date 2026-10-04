@@ -4,6 +4,7 @@
  * Proton Pass (JSON & CSV), 1Password, Chrome CSV, and Surakshit Encrypted formats.
  */
 
+import { unzipSync, strFromU8 } from 'fflate';
 import type {
   VaultItem,
   LoginItem,
@@ -18,6 +19,7 @@ export type ImportExportFormat =
   | 'bitwarden-json'
   | 'bitwarden-csv'
   | 'protonpass-json'
+  | 'protonpass-zip'
   | 'protonpass-csv'
   | 'chrome-csv'
   | 'surakshit-encrypted';
@@ -554,7 +556,18 @@ export function parseProtonPassJson(jsonText: string): DetailedImportResult {
   const folderItemCounts: Record<string, number> = {};
   const now = Date.now();
 
-  const vaults = Array.isArray(parsed.vaults) ? parsed.vaults : [parsed];
+  if (parsed.encrypted === true) {
+    throw new Error(
+      'This Proton Pass export is PGP-encrypted. Re-export from Proton Pass without encryption (or decrypt it first) and try again.'
+    );
+  }
+
+  // Real Proton Pass exports key vaults by share ID: { vaults: { [shareId]: { name, items } } }
+  const vaults: any[] = Array.isArray(parsed.vaults)
+    ? parsed.vaults
+    : parsed.vaults && typeof parsed.vaults === 'object'
+    ? Object.values(parsed.vaults)
+    : [parsed];
   let totalDetected = 0;
 
   for (const v of vaults) {
@@ -573,6 +586,19 @@ export function parseProtonPassJson(jsonText: string): DetailedImportResult {
         const name = (metadata.name || metadata.title || 'Untitled Item').trim();
         const notes = metadata.note || data.note || undefined;
         const type = raw.type || data.type || 'login';
+        // Proton item state 2 = trashed
+        const trash = raw.state === 2;
+        const favorite = Boolean(raw.favorite || data.favorite || raw.pinned);
+        const createdAt = typeof raw.createTime === 'number' ? raw.createTime * 1000 : now;
+        const updatedAt = typeof raw.modifyTime === 'number' ? raw.modifyTime * 1000 : now;
+        const extraFields: CustomField[] = Array.isArray(data.extraFields)
+          ? data.extraFields.map((f: any) => ({
+              id: crypto.randomUUID(),
+              label: String(f.fieldName || 'Field'),
+              value: String(f.data?.content ?? ''),
+              type: f.type === 'hidden' || f.type === 'totp' ? ('hidden' as const) : ('text' as const),
+            }))
+          : [];
 
         folderItemCounts[vaultName] = (folderItemCounts[vaultName] || 0) + 1;
 
@@ -586,16 +612,22 @@ export function parseProtonPassJson(jsonText: string): DetailedImportResult {
             id: crypto.randomUUID(),
             type: 'login',
             name,
-            username: content.username || metadata.username || '',
+            username:
+              content.itemUsername ||
+              content.itemEmail ||
+              content.username ||
+              metadata.username ||
+              (type === 'alias' ? raw.aliasEmail || '' : ''),
             password: content.password || '',
             urls,
             totpSecret: content.totpUri || content.totp || undefined,
             notes,
             folder: vaultName,
-            favorite: Boolean(raw.favorite || data.favorite),
-            trash: false,
-            createdAt: now,
-            updatedAt: now,
+            favorite,
+            trash,
+            customFields: extraFields.length > 0 ? extraFields : undefined,
+            createdAt,
+            updatedAt,
           });
         } else if (type === 'note') {
           validItems.push({
@@ -604,28 +636,60 @@ export function parseProtonPassJson(jsonText: string): DetailedImportResult {
             name,
             content: content.note || notes || '',
             folder: vaultName,
-            favorite: Boolean(raw.favorite || data.favorite),
-            trash: false,
-            createdAt: now,
-            updatedAt: now,
+            favorite,
+            trash,
+            createdAt,
+            updatedAt,
           });
         } else if (type === 'creditCard' || type === 'card') {
+          // Proton stores expiration as "YYYY-MM"
+          const [expYear, expMonth] =
+            typeof content.expirationDate === 'string' && content.expirationDate.includes('-')
+              ? content.expirationDate.split('-')
+              : [content.expYear || '', content.expMonth || ''];
           validItems.push({
             id: crypto.randomUUID(),
             type: 'card',
             name,
             cardholderName: content.cardholderName || '',
-            cardNumber: (content.cardNumber || '').replace(/\s+/g, ''),
-            expirationMonth: content.expMonth || '',
-            expirationYear: content.expYear || '',
-            cvv: content.cvv || '',
+            cardNumber: (content.number || content.cardNumber || '').replace(/\s+/g, ''),
+            expirationMonth: expMonth || '',
+            expirationYear: expYear || '',
+            cvv: content.verificationNumber || content.cvv || '',
+            pin: content.pin || undefined,
             notes,
             folder: vaultName,
-            favorite: Boolean(raw.favorite || data.favorite),
-            trash: false,
-            createdAt: now,
-            updatedAt: now,
+            favorite,
+            trash,
+            createdAt,
+            updatedAt,
           });
+        } else if (type === 'identity') {
+          const [first = '', ...rest] = String(content.fullName || '').trim().split(/\s+/);
+          validItems.push({
+            id: crypto.randomUUID(),
+            type: 'identity',
+            name,
+            firstName: content.firstName || first,
+            lastName: content.lastName || rest.join(' '),
+            email: content.email || '',
+            phone: content.phoneNumber || '',
+            addressLine1: content.streetAddress || '',
+            addressLine2: content.floor || undefined,
+            city: content.city || '',
+            state: content.stateOrProvince || '',
+            postalCode: content.zipOrPostalCode || '',
+            country: content.countryOrRegion || '',
+            ssnOrId: content.socialSecurityNumber || content.passportNumber || undefined,
+            customFields: extraFields.length > 0 ? extraFields : undefined,
+            folder: vaultName,
+            favorite,
+            trash,
+            createdAt,
+            updatedAt,
+          });
+        } else {
+          throw new Error(`Unsupported Proton Pass item type: ${type}`);
         }
       } catch (err: unknown) {
         failedItems.push({
@@ -652,6 +716,35 @@ export function parseProtonPassJson(jsonText: string): DetailedImportResult {
     allFolders,
     formatDetected: 'Proton Pass JSON',
   };
+}
+
+/**
+ * Proton Pass "Export" produces a .zip containing `Proton Pass/data.json`
+ * (or `data.pgp` when the user chose PGP encryption).
+ */
+export function parseProtonPassZip(zipBytes: Uint8Array): DetailedImportResult {
+  let files: Record<string, Uint8Array>;
+  try {
+    files = unzipSync(zipBytes, {
+      filter: (f) => /(^|\/)data\.(json|pgp)$/i.test(f.name),
+    });
+  } catch {
+    throw new Error('Could not read the zip file. Make sure it is an unmodified Proton Pass export.');
+  }
+
+  const names = Object.keys(files);
+  const jsonName = names.find((n) => /data\.json$/i.test(n));
+  if (!jsonName) {
+    if (names.some((n) => /data\.pgp$/i.test(n))) {
+      throw new Error(
+        'This Proton Pass export is PGP-encrypted. Re-export from Proton Pass without encryption and try again.'
+      );
+    }
+    throw new Error('No data.json found in the zip. Is this a Proton Pass export?');
+  }
+
+  const result = parseProtonPassJson(strFromU8(files[jsonName]));
+  return { ...result, formatDetected: 'Proton Pass ZIP' };
 }
 
 export function exportProtonPassJson(vault: DecryptedVault): string {

@@ -18,6 +18,7 @@ import {
   parseBitwardenJson,
   parseBitwardenCsv,
   parseProtonPassJson,
+  parseProtonPassZip,
   parseChromeCsv,
   type ImportExportFormat,
   type DetailedImportResult,
@@ -66,6 +67,26 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
     setParsedPreview(null);
     setFinalReport(null);
     setImportProgress(0);
+
+    const isZip = /\.zip$/i.test(file.name) || selectedFormat === 'protonpass-zip';
+    if (isZip) {
+      if (selectedFormat !== 'protonpass-zip') setSelectedFormat('protonpass-zip');
+      const zipReader = new FileReader();
+      zipReader.onload = (event) => {
+        try {
+          const bytes = new Uint8Array(event.target?.result as ArrayBuffer);
+          const result = parseProtonPassZip(bytes);
+          // Non-empty marker so the Import button enables; the parsed preview is used for import.
+          setFileContent(file.name);
+          setParsedPreview(result);
+        } catch (err: unknown) {
+          setFileContent('');
+          setError(err instanceof Error ? err.message : 'Failed to read Proton Pass zip.');
+        }
+      };
+      zipReader.readAsArrayBuffer(file);
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -157,6 +178,9 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
         });
       } else {
         const parsed = parsedPreview || autoDetectAndImport(fileContent, selectedFormat);
+        if (selectedFormat === 'protonpass-zip' && !parsedPreview) {
+          throw new Error('Please select a valid Proton Pass zip export.');
+        }
 
         setImportProgress(40);
         setImportPhase(`Mapping ${parsed.validItems.length} items to ${parsed.allFolders.length} folders...`);
@@ -262,6 +286,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
             >
               <option value="bitwarden-json">Bitwarden (JSON) — Recommended / Default</option>
               <option value="bitwarden-csv">Bitwarden (CSV)</option>
+              <option value="protonpass-zip">Proton Pass (ZIP export)</option>
               <option value="protonpass-json">Proton Pass (JSON)</option>
               <option value="protonpass-csv">Proton Pass (CSV)</option>
               <option value="chrome-csv">Chrome / Generic Password (CSV)</option>
@@ -280,7 +305,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
             <input
               ref={fileInputRef}
               type="file"
-              accept=".json,.csv,.aegisvault,.surakshit,.txt"
+              accept=".json,.csv,.zip,.aegisvault,.surakshit,.txt"
               onChange={handleFileChange}
               className="hidden"
             />
@@ -326,7 +351,7 @@ export const ImportModal: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
                     </p>
                   </div>
                   <p className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wider font-mono pt-1">
-                    Supports .json, .csv, .surakshit, .aegisvault
+                    Supports .json, .csv, .zip, .surakshit, .aegisvault
                   </p>
                 </div>
               )}
