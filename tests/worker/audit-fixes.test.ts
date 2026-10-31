@@ -186,3 +186,46 @@ describe('Fix 4: identifier lookup hashes are server-computed and unique across 
     expect(pre.exists).toBe(false);
   });
 });
+
+describe('Fix 5: bounded vault payloads and revision retention', () => {
+  async function authed() {
+    await register('carol', 'pc');
+    const res = await login('carol', 'pc');
+    return ((await res.json()) as any).sessionToken as string;
+  }
+  const sync = (token: string, expectedRevision: number, encryptedPayload: string, iv = 'aXZpdml2aXZpdml2') =>
+    api('/api/vault', { expectedRevision, encryptedPayload, iv }, { method: 'PUT', headers: { Authorization: `Bearer ${token}` } });
+
+  it('rejects an encryptedPayload above the cap with 413', async () => {
+    const token = await authed();
+    const res = await sync(token, 1, 'A'.repeat(1_500_001));
+    expect(res.status).toBe(413);
+    expect(((await res.json()) as any).error.code).toBe('PAYLOAD_TOO_LARGE');
+  });
+
+  it('rejects a request body above the 2 MB limit before parsing', async () => {
+    const token = await authed();
+    const res = await sync(token, 1, 'A'.repeat(2 * 1024 * 1024 + 10));
+    expect(res.status).toBe(413);
+  });
+
+  it('rejects an oversized iv', async () => {
+    const token = await authed();
+    expect((await sync(token, 1, 'cGF5', 'x'.repeat(65))).status).toBe(400);
+  });
+
+  it('rejects an oversized initial vault at registration', async () => {
+    expect((await register('big', 'p', { initialEncryptedVault: 'A'.repeat(1_500_001) })).status).toBe(413);
+  });
+
+  it('keeps only the newest 20 revisions after many saves', async () => {
+    const token = await authed();
+    for (let rev = 1; rev <= 25; rev++) {
+      expect((await sync(token, rev, `cGF5bG9hZC0${rev}`)).status).toBe(200);
+    }
+    const kept = db.revisions.map((r) => r.revision).sort((a, b) => a - b);
+    expect(kept).toHaveLength(20);
+    expect(kept[0]).toBe(6);
+    expect(kept[kept.length - 1]).toBe(25);
+  });
+});

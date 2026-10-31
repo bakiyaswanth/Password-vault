@@ -3,6 +3,7 @@
  */
 
 import { AppError } from '../errors/AppError';
+import { assertVaultBlobSize } from './vault';
 import type { RegisterDto, LoginDto, UpdateEmailDto } from '../types';
 
 export function validateUsername(raw: unknown): string {
@@ -102,6 +103,13 @@ export function validateRegistration(body: unknown): RegisterDto {
   }
   if (typeof b.initialIv !== 'string' || !b.initialIv) {
     throw AppError.validation('initialIv is required and must be a non-empty string');
+  }
+  assertVaultBlobSize(b.initialEncryptedVault, b.initialIv);
+  for (const field of ['kdfSalt', 'authVerifier', 'encryptedVaultKey', 'encryptedRecoveryKey', 'recoverySalt'] as const) {
+    const v = b[field];
+    if (typeof v === 'string' && v.length > 16_384) {
+      throw AppError.validation(`${field} is too long`);
+    }
   }
 
   return {
