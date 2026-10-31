@@ -2,148 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import app from '../../worker/index';
 import { hashToken } from '../../worker/middleware/auth';
 import type { Env } from '../../worker/types';
-
-// In-memory mock SQLite D1 Database for high-speed deterministic integration testing
-class MockD1Database {
-  private users: Map<string, any> = new Map();
-  private vaults: Map<string, any> = new Map();
-  private revisions: any[] = [];
-  private sessions: Map<string, any> = new Map();
-  private rateLimits: Map<string, any> = new Map();
-
-  prepare(query: string) {
-    const self = this;
-    return {
-      bind(...params: any[]) {
-        return {
-          async first<T = any>(): Promise<T | null> {
-            if (query.includes('FROM users WHERE email_lookup_hash = ? OR username_lookup_hash = ?')) {
-              const hash1 = params[0];
-              const hash2 = params[1];
-              for (const u of self.users.values()) {
-                if (u.email_lookup_hash === hash1 || u.username_lookup_hash === hash2) return u as T;
-              }
-              return null;
-            }
-            if (query.includes('FROM users WHERE email_lookup_hash = ?')) {
-              const hash = params[0];
-              for (const u of self.users.values()) {
-                if (u.email_lookup_hash === hash) return u as T;
-              }
-              return null;
-            }
-            if (query.includes('FROM users WHERE username_lookup_hash = ?')) {
-              const hash = params[0];
-              for (const u of self.users.values()) {
-                if (u.username_lookup_hash === hash) return u as T;
-              }
-              return null;
-            }
-            if (query.includes('FROM users WHERE LOWER(username) = LOWER(?)')) {
-              const uname = (params[0] || '').toLowerCase();
-              for (const u of self.users.values()) {
-                if ((u.username || '').toLowerCase() === uname) return u as T;
-              }
-              return null;
-            }
-            if (query.includes('FROM users WHERE id = ?')) {
-              return (self.users.get(params[0]) || null) as T;
-            }
-            if (query.includes('FROM vaults WHERE user_id = ?')) {
-              for (const v of self.vaults.values()) {
-                if (v.user_id === params[0]) return v as T;
-              }
-              return null;
-            }
-            if (query.includes('FROM sessions WHERE token_hash = ?')) {
-              const hash = params[0];
-              const s = self.sessions.get(hash);
-              if (s && s.expires_at > params[1]) return s as T;
-              return null;
-            }
-            if (query.includes('FROM rate_limits WHERE key = ?')) {
-              return (self.rateLimits.get(params[0]) || null) as T;
-            }
-            if (query.includes('FROM vault_revisions WHERE vault_id = ? AND revision = ?')) {
-              const rev = self.revisions.find((r) => r.vault_id === params[0] && r.revision === params[1]);
-              return (rev || null) as T;
-            }
-            return null;
-          },
-          async all<T = any>(): Promise<{ results: T[] }> {
-            if (query.includes('FROM sessions WHERE user_id = ?')) {
-              const list = Array.from(self.sessions.values()).filter((s) => s.user_id === params[0]);
-              return { results: list as T[] };
-            }
-            if (query.includes('FROM vault_revisions WHERE vault_id = ?')) {
-              const list = self.revisions.filter((r) => r.vault_id === params[0]);
-              return { results: list as T[] };
-            }
-            return { results: [] };
-          },
-          async run() {
-            if (query.includes('UPDATE users SET email = ?, email_lookup_hash = ?')) {
-              const user = self.users.get(params[3]);
-              if (user) {
-                user.email = params[0];
-                user.email_lookup_hash = params[1];
-                user.updated_at = params[2];
-              }
-            }
-            if (query.includes('INSERT INTO sessions')) {
-              const s = {
-                id: params[0],
-                user_id: params[1],
-                token_hash: params[2],
-                user_agent: params[3],
-                ip_hash: params[4],
-                expires_at: params[5],
-                created_at: params[6],
-                last_active_at: params[7],
-              };
-              self.sessions.set(s.token_hash, s);
-            }
-            if (query.includes('DELETE FROM sessions WHERE token_hash = ?')) {
-              self.sessions.delete(params[0]);
-            }
-            if (query.includes('DELETE FROM sessions WHERE id = ?')) {
-              for (const [k, v] of self.sessions.entries()) {
-                if (v.id === params[0]) self.sessions.delete(k);
-              }
-            }
-            if (query.includes('DELETE FROM users WHERE id = ?')) {
-              self.users.delete(params[0]);
-              for (const [k, v] of self.vaults.entries()) {
-                if (v.user_id === params[0]) self.vaults.delete(k);
-              }
-            }
-            if (query.includes('INSERT OR REPLACE INTO rate_limits')) {
-              self.rateLimits.set(params[0], { count: params[1], reset_at: params[2] });
-            }
-            if (query.includes('UPDATE rate_limits SET count = count + 1')) {
-              const curr = self.rateLimits.get(params[0]);
-              if (curr) curr.count += 1;
-            }
-            return { meta: { changes: 1 } };
-          },
-        };
-      },
-    };
-  }
-
-  async batch(_statements: any[]) {
-    return [{ meta: { changes: 1 } }, { meta: { changes: 1 } }];
-  }
-
-  injectUser(user: any, vault?: any) {
-    this.users.set(user.id, user);
-    if (vault) this.vaults.set(vault.id, vault);
-  }
-
-  injectSession(session: any) {
-    this.sessions.set(session.token_hash, session);
-  }
-}
+import { MockD1Database, lookupHash, TEST_KDF } from './mock-d1';
 
 describe('Worker Backend API & Standard Error Responses', () => {
   let mockDb: MockD1Database;
@@ -155,6 +14,7 @@ describe('Worker Backend API & Standard Error Responses', () => {
       DB: mockDb as unknown as D1Database,
       ENVIRONMENT: 'test',
       SERVER_PEPPER: 'test-pepper-12345',
+      VERIFIER_KEY: 'test-verifier-key-0123456789abcdef',
       CORS_ORIGIN: 'http://localhost:3000',
     };
   });
@@ -175,7 +35,7 @@ describe('Worker Backend API & Standard Error Responses', () => {
         username: 'coder-bob',
         usernameLookupHash: 'bob-uname-hash',
         kdfSalt: 'salt-bob',
-        kdfParams: { iterations: 3 },
+        kdfParams: TEST_KDF,
         authVerifier: 'verifier-bob',
         encryptedVaultKey: 'key-bob',
         initialEncryptedVault: 'payload-bob',
@@ -201,7 +61,7 @@ describe('Worker Backend API & Standard Error Responses', () => {
         usernameLookupHash: 'alice-uname-hash',
         emailLookupHash: 'alice-email-hash',
         kdfSalt: 'salt-alice',
-        kdfParams: { iterations: 3 },
+        kdfParams: TEST_KDF,
         authVerifier: 'verifier-alice',
         encryptedVaultKey: 'key-alice',
         initialEncryptedVault: 'payload-alice',
@@ -223,7 +83,7 @@ describe('Worker Backend API & Standard Error Responses', () => {
       username: 'dev-user',
       email: null,
       email_lookup_hash: null,
-      username_lookup_hash: 'hash-dev-user',
+      username_lookup_hash: await lookupHash('dev-user'),
       kdf_salt: 'salt',
       kdf_params: '{}',
       auth_verifier: 'verifier',
@@ -242,7 +102,7 @@ describe('Worker Backend API & Standard Error Responses', () => {
         username: 'dev-user',
         usernameLookupHash: 'hash-dev-user',
         kdfSalt: 'salt',
-        kdfParams: { iterations: 3 },
+        kdfParams: TEST_KDF,
         authVerifier: 'verifier',
         encryptedVaultKey: 'key',
         initialEncryptedVault: 'payload',
@@ -314,7 +174,7 @@ describe('Worker Backend API & Standard Error Responses', () => {
       id: 'user-other',
       username: 'other-user',
       email: 'taken@example.com',
-      email_lookup_hash: 'hash-taken-email',
+      email_lookup_hash: await lookupHash('taken@example.com'),
       username_lookup_hash: 'hash-other-uname',
       kdf_salt: 'salt',
       kdf_params: '{}',

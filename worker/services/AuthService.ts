@@ -6,27 +6,30 @@ import { AppError } from '../errors/AppError';
 import { UserRepository } from '../repositories/UserRepository';
 import { SessionRepository } from '../repositories/SessionRepository';
 import { hashToken } from '../middleware/auth';
+import { checkVerifier, protectVerifier } from './verifier';
 import type { DbUser, DbVault, DbSession, RegisterDto, LoginDto, UpdateEmailDto } from '../types';
 
-function timingSafeEqualStr(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return result === 0;
+export interface AuthSecrets {
+  verifierKey: string;
+  serverPepper: string;
 }
 
 export class AuthService {
   private userRepo: UserRepository;
   private sessionRepo: SessionRepository;
 
-  constructor(db: D1Database) {
+  constructor(db: D1Database, private readonly secrets?: AuthSecrets) {
     this.userRepo = new UserRepository(db);
     this.sessionRepo = new SessionRepository(db);
   }
 
-  async getPrelogin(lookupHash: string, serverPepper: string = 'default-pepper') {
+  private requireSecrets(): AuthSecrets {
+    if (!this.secrets) throw new Error('AuthService secrets not provided');
+    return this.secrets;
+  }
+
+  async getPrelogin(lookupHash: string) {
+    const { serverPepper } = this.requireSecrets();
     const user = await this.userRepo.findByIdentifierLookupHash(lookupHash);
 
     if (user) {
@@ -58,6 +61,7 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
+    const { verifierKey } = this.requireSecrets();
     // 1. Calculate / ensure username lookup hash
     let usernameHash = dto.usernameLookupHash;
     if (!usernameHash) {
@@ -98,7 +102,7 @@ export class AuthService {
       username_lookup_hash: usernameHash,
       kdf_salt: dto.kdfSalt,
       kdf_params: JSON.stringify(dto.kdfParams),
-      auth_verifier: dto.authVerifier,
+      auth_verifier: await protectVerifier(dto.authVerifier, verifierKey),
       encrypted_vault_key: dto.encryptedVaultKey,
       encrypted_recovery_key: dto.encryptedRecoveryKey || null,
       recovery_salt: dto.recoverySalt || null,
@@ -138,10 +142,18 @@ export class AuthService {
       throw AppError.validation('Identifier lookup hash is required');
     }
 
+    const { verifierKey } = this.requireSecrets();
     const user = await this.userRepo.findByIdentifierLookupHash(lookupHash);
+    const check = user ? await checkVerifier(user.auth_verifier, dto.authProof, verifierKey) : null;
 
-    if (!user || !timingSafeEqualStr(user.auth_verifier, dto.authProof)) {
+    if (!user || !check?.ok) {
       throw AppError.unauthorized('Invalid credentials');
+    }
+
+    const now = Date.now();
+    if (check.needsUpgrade) {
+      // Legacy row stored the raw proof; replace it with the protected form.
+      await this.userRepo.upgradeVerifier(user.id, user.auth_verifier, await protectVerifier(dto.authProof, verifierKey), now);
     }
 
     // Create session
@@ -150,7 +162,6 @@ export class AuthService {
     const token = Array.from(rawTokenBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
     const tokenHash = await hashToken(token);
 
-    const now = Date.now();
     const expiresAt = now + 7 * 24 * 60 * 60 * 1000; // 7 days
     const ipHash = await hashToken(meta.ip);
 

@@ -10,6 +10,8 @@ export type ErrorCode =
   | 'NOT_FOUND'
   | 'CONFLICT'
   | 'RATE_LIMITED'
+  | 'PAYLOAD_TOO_LARGE'
+  | 'UNSUPPORTED_MEDIA_TYPE'
   | 'INTERNAL_ERROR';
 
 export class AppError extends Error {
@@ -53,6 +55,14 @@ export class AppError extends Error {
 
   static rateLimited(message: string = 'Too many requests. Please try again later.'): AppError {
     return new AppError('RATE_LIMITED', message, 429);
+  }
+
+  static payloadTooLarge(message: string = 'Request payload is too large'): AppError {
+    return new AppError('PAYLOAD_TOO_LARGE', message, 413);
+  }
+
+  static unsupportedMediaType(message: string = 'Content-Type must be application/json'): AppError {
+    return new AppError('UNSUPPORTED_MEDIA_TYPE', message, 415);
   }
 
   static internal(message: string = 'An unexpected server error occurred.'): AppError {

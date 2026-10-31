@@ -98,6 +98,14 @@ export class UserRepository {
       .run();
   }
 
+  async upgradeVerifier(userId: string, previous: string, protectedVerifier: string, now: number): Promise<void> {
+    // Conditional on the old value so a concurrent upgrade cannot be overwritten with a stale one.
+    await this.db
+      .prepare('UPDATE users SET auth_verifier = ?, updated_at = ? WHERE id = ? AND auth_verifier = ?')
+      .bind(protectedVerifier, now, userId, previous)
+      .run();
+  }
+
   async deleteUser(userId: string): Promise<void> {
     await this.db
       .prepare('DELETE FROM users WHERE id = ?')
