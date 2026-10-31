@@ -121,3 +121,68 @@ describe('Fix 2: server rejects weak KDF params at registration', () => {
     expect((await register('strong', 'p')).status).toBe(201);
   });
 });
+
+describe('Fix 4: identifier lookup hashes are server-computed and unique across columns', () => {
+  async function sessionFor(username: string, proof: string) {
+    const res = await login(username, proof);
+    expect(res.status).toBe(200);
+    return ((await res.json()) as any).sessionToken as string;
+  }
+
+  it('ignores client-supplied lookup hashes and stores sha256(lower(identifier))', async () => {
+    await register('Alice', 'p', { usernameLookupHash: 'attacker-chosen', email: 'A@X.test', emailLookupHash: 'also-chosen' });
+    const u = userBy('Alice');
+    expect(u.username_lookup_hash).toBe(await lookupHash('alice'));
+    expect(u.email_lookup_hash).toBe(await lookupHash('a@x.test'));
+  });
+
+  it('rejects registering an email whose hash equals an existing username hash', async () => {
+    await register('victim', 'pv');
+    // Pre-fix attack: claim the victim's username hash as this account's email hash.
+    const res = await register('mallory', 'pm', { email: 'victim', emailLookupHash: await lookupHash('victim') });
+    // 'victim' is not a valid email, so the server rejects it; and a client hash alone is ignored.
+    expect([400, 409]).toContain(res.status);
+    expect((await login('victim', 'pv')).status).toBe(200);
+  });
+
+  it('rejects a new username that collides with an existing email hash', async () => {
+    await register('owner', 'po', { email: 'shared@x.test' });
+    // Usernames cannot contain @, so construct the collision via a pre-existing row instead.
+    db.injectUser({ ...userBy('owner'), id: 'other', username: 'other', username_lookup_hash: await lookupHash('other'), email: null, email_lookup_hash: await lookupHash('newname') });
+    expect((await register('newname', 'pn')).status).toBe(409);
+  });
+
+  it('PUT /api/auth/email cannot claim a hash used by another account in either column', async () => {
+    await register('victim', 'pv', { email: 'victim@x.test' });
+    await register('mallory', 'pm');
+    const token = await sessionFor('mallory', 'pm');
+    const res = await api('/api/auth/email', { email: 'victim@x.test', emailLookupHash: await lookupHash('victim') }, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(409);
+    expect(userBy('mallory').email_lookup_hash).toBeNull();
+    expect((await login('victim', 'pv')).status).toBe(200);
+  });
+
+  it('PUT /api/auth/email stores the server-computed hash and no longer claims verification', async () => {
+    await register('bob', 'pb');
+    const token = await sessionFor('bob', 'pb');
+    const res = await api('/api/auth/email', { email: 'bob@x.test', emailLookupHash: 'forged' }, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as any).message).not.toMatch(/verified/i);
+    expect(userBy('bob').email_lookup_hash).toBe(await lookupHash('bob@x.test'));
+  });
+
+  it('refuses to resolve an identifier hash that matches two accounts', async () => {
+    await register('alice', 'pa');
+    // Simulate a pre-existing collision written before this fix.
+    db.injectUser({ ...userBy('alice'), id: 'squatter', username: 'squatter', username_lookup_hash: 'x', email_lookup_hash: await lookupHash('alice') });
+    expect((await login('alice', 'pa')).status).toBe(401);
+    const pre = (await (await api('/api/auth/prelogin', { identifierLookupHash: await lookupHash('alice') })).json()) as any;
+    expect(pre.exists).toBe(false);
+  });
+});
