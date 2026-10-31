@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { securityHeaders } from './middleware/security-headers';
 import { corsMiddleware } from './middleware/cors';
+import { requestGuard } from './middleware/request-guard';
 import { AppError } from './errors/AppError';
 import { authRouter } from './api/auth';
 import { vaultRouter } from './api/vault';
@@ -18,6 +19,7 @@ const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 // Global Middleware
 app.use('*', securityHeaders);
 app.use('*', corsMiddleware);
+app.use('/api/*', requestGuard);
 // Cap request bodies before JSON parsing (a full vault sync is well under this).
 app.use(
   '/api/*',

@@ -229,3 +229,56 @@ describe('Fix 5: bounded vault payloads and revision retention', () => {
     expect(kept[kept.length - 1]).toBe(25);
   });
 });
+
+describe('Fix 6: CSRF hardening (JSON-only bodies, origin check, tight CORS)', () => {
+  const loginBody = async () => JSON.stringify({ identifierLookupHash: await lookupHash('dave'), authProof: 'pd' });
+
+  it('rejects a cross-site text/plain login (login CSRF) with 415 and sets no cookie', async () => {
+    await register('dave', 'pd');
+    const res = await api('/api/auth/login', await loginBody(), { headers: { 'Content-Type': 'text/plain' } });
+    expect(res.status).toBe(415);
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+  });
+
+  it('rejects a form-encoded body with 415', async () => {
+    const res = await api('/api/auth/prelogin', 'identifierLookupHash=abc', {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+    expect(res.status).toBe(415);
+  });
+
+  it('rejects a state-changing request from a foreign Origin with 403', async () => {
+    await register('dave', 'pd');
+    const res = await api('/api/auth/login', await loginBody(), { headers: { Origin: 'https://evil.pages.dev' } });
+    expect(res.status).toBe(403);
+    expect(res.headers.get('Set-Cookie')).toBeNull();
+  });
+
+  it('allows same-origin JSON requests and charset parameters', async () => {
+    await register('dave', 'pd');
+    const res = await api('/api/auth/login', await loginBody(), {
+      headers: { Origin: ORIGIN, 'Content-Type': 'application/json; charset=utf-8' },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('still allows bodyless POST logout', async () => {
+    const res = await app.fetch(new Request(`${ORIGIN}/api/auth/logout`, { method: 'POST', headers: { Origin: ORIGIN } }), env);
+    expect(res.status).toBe(200);
+  });
+
+  it('does not reflect arbitrary *.pages.dev or localhost origins in production CORS', async () => {
+    for (const origin of ['https://evil.pages.dev', 'http://localhost:5173']) {
+      const res = await app.fetch(new Request(`${ORIGIN}/api/health`, { headers: { Origin: origin } }), env);
+      expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
+    }
+    const ok = await app.fetch(new Request(`${ORIGIN}/api/health`, { headers: { Origin: ORIGIN } }), env);
+    expect(ok.headers.get('Access-Control-Allow-Origin')).toBe(ORIGIN);
+  });
+
+  it('allows localhost origins outside production', async () => {
+    env.ENVIRONMENT = 'development';
+    const res = await app.fetch(new Request(`${ORIGIN}/api/health`, { headers: { Origin: 'http://localhost:5173' } }), env);
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('http://localhost:5173');
+  });
+});
