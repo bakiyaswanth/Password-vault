@@ -109,3 +109,15 @@ describe('Fix 1: stored auth_verifier is not a login credential', () => {
     expect(res.status).toBe(500);
   });
 });
+
+describe('Fix 2: server rejects weak KDF params at registration', () => {
+  it('rejects a downgraded kdfParams object', async () => {
+    const res = await register('weak', 'p', { kdfParams: { memoryKiB: 8, iterations: 1, parallelism: 1, keyLengthBytes: 32 } });
+    expect(res.status).toBe(400);
+    expect(db.users.size).toBe(0);
+  });
+
+  it('accepts the default params', async () => {
+    expect((await register('strong', 'p')).status).toBe(201);
+  });
+});

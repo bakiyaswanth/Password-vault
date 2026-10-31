@@ -44,6 +44,23 @@ export function validateEmail(raw: unknown): string | null {
   return email.toLowerCase();
 }
 
+// Mirrors src/crypto/kdf-policy.ts. Missing fields fall back to the client defaults.
+const KDF_LIMITS: Record<string, { min: number; max: number; fallback: number }> = {
+  memoryKiB: { min: 65536, max: 1048576, fallback: 65536 },
+  iterations: { min: 3, max: 20, fallback: 3 },
+  parallelism: { min: 1, max: 16, fallback: 4 },
+  keyLengthBytes: { min: 32, max: 32, fallback: 32 },
+};
+
+export function validateKdfParams(params: Record<string, unknown>): void {
+  for (const [name, { min, max, fallback }] of Object.entries(KDF_LIMITS)) {
+    const value = params[name] ?? fallback;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw AppError.validation(`kdfParams.${name} must be an integer between ${min} and ${max}`);
+    }
+  }
+}
+
 export function validatePrelogin(body: unknown): string {
   if (!body || typeof body !== 'object') {
     throw AppError.validation('Request body must be a JSON object');
@@ -73,6 +90,7 @@ export function validateRegistration(body: unknown): RegisterDto {
   if (!b.kdfParams || typeof b.kdfParams !== 'object') {
     throw AppError.validation('kdfParams is required and must be an object');
   }
+  validateKdfParams(b.kdfParams as Record<string, unknown>);
   if (typeof b.authVerifier !== 'string' || !b.authVerifier) {
     throw AppError.validation('authVerifier is required and must be a non-empty string');
   }

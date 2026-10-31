@@ -5,6 +5,7 @@
 
 import { sha256 } from '@noble/hashes/sha256';
 import { deriveMasterKeyArgon2id } from './argon2';
+import { assertSafeArgon2Params } from './kdf-policy';
 import { encryptAesGcm, decryptAesGcm } from './aes';
 import { bytesToBase64, base64ToBytes, bytesToHex, bytesToUtf8, utf8ToBytes } from './encoding';
 import { getRandomBytes } from './random';
@@ -92,7 +93,8 @@ export async function restoreEncryptedBackup<T>(
   const { key: backupKey } = await deriveMasterKeyArgon2id(
     backupPassword,
     salt,
-    metadata.keyDerivation.params
+    // Params come from the (untrusted) file: bound them before running Argon2id.
+    assertSafeArgon2Params(metadata.keyDerivation.params)
   );
 
   const iv = base64ToBytes(metadata.iv);
