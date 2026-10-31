@@ -14,12 +14,14 @@ import type { EncryptedBlobV1 } from './types';
  * @param plaintext Data to encrypt
  * @param key 256-bit (32-byte) key
  * @param iv Optional 96-bit (12-byte) IV (generated automatically if not provided)
+ * @param additionalData Optional associated data authenticated (not encrypted) with the ciphertext
  * @returns Ciphertext with appended 128-bit authentication tag, and the IV used
  */
 export async function encryptAesGcm(
   plaintext: Uint8Array,
   key: Uint8Array,
-  iv?: Uint8Array
+  iv?: Uint8Array,
+  additionalData?: Uint8Array
 ): Promise<{ ciphertext: Uint8Array; iv: Uint8Array }> {
   if (key.byteLength !== 32) {
     throw new InvalidKeyError('AES-256-GCM requires a 32-byte (256-bit) key');
@@ -43,6 +45,7 @@ export async function encryptAesGcm(
       name: 'AES-GCM',
       iv: nonce as unknown as BufferSource,
       tagLength: 128,
+      ...(additionalData ? { additionalData: additionalData as unknown as BufferSource } : {}),
     },
     cryptoKey,
     plaintext as unknown as BufferSource
@@ -60,12 +63,14 @@ export async function encryptAesGcm(
  * @param ciphertextWithTag Ciphertext including 128-bit authentication tag
  * @param key 256-bit (32-byte) key
  * @param iv 96-bit (12-byte) IV
+ * @param additionalData Associated data that must match what was used at encryption
  * @returns Decrypted plaintext bytes
  */
 export async function decryptAesGcm(
   ciphertextWithTag: Uint8Array,
   key: Uint8Array,
-  iv: Uint8Array
+  iv: Uint8Array,
+  additionalData?: Uint8Array
 ): Promise<Uint8Array> {
   if (key.byteLength !== 32) {
     throw new InvalidKeyError('AES-256-GCM requires a 32-byte (256-bit) key');
@@ -88,6 +93,7 @@ export async function decryptAesGcm(
         name: 'AES-GCM',
         iv: iv as unknown as BufferSource,
         tagLength: 128,
+        ...(additionalData ? { additionalData: additionalData as unknown as BufferSource } : {}),
       },
       cryptoKey,
       ciphertextWithTag as unknown as BufferSource
