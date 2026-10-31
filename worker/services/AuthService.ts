@@ -6,27 +6,40 @@ import { AppError } from '../errors/AppError';
 import { UserRepository } from '../repositories/UserRepository';
 import { SessionRepository } from '../repositories/SessionRepository';
 import { hashToken } from '../middleware/auth';
+import { checkVerifier, protectVerifier } from './verifier';
 import type { DbUser, DbVault, DbSession, RegisterDto, LoginDto, UpdateEmailDto } from '../types';
 
-function timingSafeEqualStr(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let result = 0;
-  for (let i = 0; i < a.length; i++) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return result === 0;
+export interface AuthSecrets {
+  verifierKey: string;
+  serverPepper: string;
+}
+
+/**
+ * sha256(lower(trim(identifier))) as hex. Identical to the client's computeLookupHash, so hashes
+ * stored by earlier client-supplied values stay valid. Always computed server-side: client-supplied
+ * lookup hashes are ignored so an account cannot claim another identifier's hash.
+ */
+export async function computeLookupHash(identifier: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identifier.trim().toLowerCase()));
+  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export class AuthService {
   private userRepo: UserRepository;
   private sessionRepo: SessionRepository;
 
-  constructor(db: D1Database) {
+  constructor(db: D1Database, private readonly secrets?: AuthSecrets) {
     this.userRepo = new UserRepository(db);
     this.sessionRepo = new SessionRepository(db);
   }
 
-  async getPrelogin(lookupHash: string, serverPepper: string = 'default-pepper') {
+  private requireSecrets(): AuthSecrets {
+    if (!this.secrets) throw new Error('AuthService secrets not provided');
+    return this.secrets;
+  }
+
+  async getPrelogin(lookupHash: string) {
+    const { serverPepper } = this.requireSecrets();
     const user = await this.userRepo.findByIdentifierLookupHash(lookupHash);
 
     if (user) {
@@ -58,30 +71,19 @@ export class AuthService {
   }
 
   async register(dto: RegisterDto) {
-    // 1. Calculate / ensure username lookup hash
-    let usernameHash = dto.usernameLookupHash;
-    if (!usernameHash) {
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(dto.username.toLowerCase()));
-      usernameHash = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
-    }
+    const { verifierKey } = this.requireSecrets();
 
-    // Check username collision
-    const existingUserByUsername = await this.userRepo.findByUsernameLookupHash(usernameHash);
-    if (existingUserByUsername) {
+    // Lookup hashes share one namespace across the username and email columns, so each new
+    // identifier must be unused in BOTH columns.
+    const usernameHash = await computeLookupHash(dto.username);
+    if ((await this.userRepo.findAllByLookupHash(usernameHash)).length > 0) {
       throw AppError.conflict('An account with this username already exists');
     }
 
-    // Check email collision if email provided
     let emailHash: string | null = null;
     if (dto.email) {
-      emailHash = dto.emailLookupHash || null;
-      if (!emailHash) {
-        const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(dto.email.toLowerCase()));
-        emailHash = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
-      }
-
-      const existingUserByEmail = await this.userRepo.findByEmailLookupHash(emailHash);
-      if (existingUserByEmail) {
+      emailHash = await computeLookupHash(dto.email);
+      if (emailHash === usernameHash || (await this.userRepo.findAllByLookupHash(emailHash)).length > 0) {
         throw AppError.conflict('An account with this email already exists');
       }
     }
@@ -98,7 +100,7 @@ export class AuthService {
       username_lookup_hash: usernameHash,
       kdf_salt: dto.kdfSalt,
       kdf_params: JSON.stringify(dto.kdfParams),
-      auth_verifier: dto.authVerifier,
+      auth_verifier: await protectVerifier(dto.authVerifier, verifierKey),
       encrypted_vault_key: dto.encryptedVaultKey,
       encrypted_recovery_key: dto.encryptedRecoveryKey || null,
       recovery_salt: dto.recoverySalt || null,
@@ -138,10 +140,18 @@ export class AuthService {
       throw AppError.validation('Identifier lookup hash is required');
     }
 
+    const { verifierKey } = this.requireSecrets();
     const user = await this.userRepo.findByIdentifierLookupHash(lookupHash);
+    const check = user ? await checkVerifier(user.auth_verifier, dto.authProof, verifierKey) : null;
 
-    if (!user || !timingSafeEqualStr(user.auth_verifier, dto.authProof)) {
+    if (!user || !check?.ok) {
       throw AppError.unauthorized('Invalid credentials');
+    }
+
+    const now = Date.now();
+    if (check.needsUpgrade) {
+      // Legacy row stored the raw proof; replace it with the protected form.
+      await this.userRepo.upgradeVerifier(user.id, user.auth_verifier, await protectVerifier(dto.authProof, verifierKey), now);
     }
 
     // Create session
@@ -150,7 +160,6 @@ export class AuthService {
     const token = Array.from(rawTokenBytes).map((b) => b.toString(16).padStart(2, '0')).join('');
     const tokenHash = await hashToken(token);
 
-    const now = Date.now();
     const expiresAt = now + 7 * 24 * 60 * 60 * 1000; // 7 days
     const ipHash = await hashToken(meta.ip);
 
@@ -197,14 +206,12 @@ export class AuthService {
   }
 
   async updateEmail(user: DbUser, dto: UpdateEmailDto) {
-    let emailHash = dto.emailLookupHash;
-    if (!emailHash) {
-      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(dto.email.toLowerCase()));
-      emailHash = Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
-    }
+    const emailHash = await computeLookupHash(dto.email);
 
-    const existing = await this.userRepo.findByEmailLookupHash(emailHash);
-    if (existing && existing.id !== user.id) {
+    // Reject if the hash is used by any OTHER account in either column (e.g. another user's
+    // username), which would otherwise make that user's identifier ambiguous.
+    const holders = await this.userRepo.findAllByLookupHash(emailHash);
+    if (holders.some((h) => h.id !== user.id)) {
       throw AppError.conflict('This email address is already associated with another account');
     }
 
@@ -213,7 +220,8 @@ export class AuthService {
 
     return {
       success: true,
-      message: 'Email address added and verified successfully',
+      // Ownership is not verified (no email delivery); do not claim it is.
+      message: 'Email address added successfully',
       email: dto.email,
     };
   }

@@ -11,8 +11,9 @@ import {
   unwrapVaultKey,
   computeAuthVerifier,
 } from '../crypto/keys';
-import { encryptAesGcm, decryptAesGcm } from '../crypto/aes';
 import { generateSalt } from '../crypto/random';
+import { assertSafeArgon2Params } from '../crypto/kdf-policy';
+import { decryptVaultForRevision, encryptVaultForRevision } from '../crypto/vault-binding';
 import { bytesToBase64, base64ToBytes, bytesToUtf8, utf8ToBytes } from '../crypto/encoding';
 import { generateRecoveryPhrase, deriveRecoveryKek, wrapRecoveryVaultKey, unwrapRecoveryVaultKey } from '../crypto/recovery';
 import { sha256 } from '@noble/hashes/sha256';
@@ -82,7 +83,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = await apiClient.vault.get();
       const iv = base64ToBytes(data.iv);
       const ciphertext = base64ToBytes(data.encryptedPayload);
-      const decryptedBytes = await decryptAesGcm(ciphertext, vek, iv);
+      // Bound to the server-reported revision; rejects rolled-back or relabelled payloads.
+      const { plaintext: decryptedBytes } = await decryptVaultForRevision(ciphertext, vek, iv, data.revision, data.vaultId);
       const decryptedJson: DecryptedVault = JSON.parse(bytesToUtf8(decryptedBytes));
 
       memoryStore.setVault(decryptedJson, data.revision, data.vaultId);
@@ -145,11 +147,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         emailLookupHash: identifierLookupHash,
       });
 
-      // 2. Client-side Key Derivation
+      // 2. Client-side Key Derivation (server-supplied params are bounded to block KDF downgrade)
       const { authKey, kek } = await deriveKeysFromMasterPassword(
         masterPass,
         preData.kdfSalt,
-        preData.kdfParams
+        assertSafeArgon2Params(preData.kdfParams)
       );
 
       const authProof = computeAuthVerifier(authKey);
@@ -262,7 +264,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         updatedAt: Date.now(),
       };
       const initialJsonBytes = utf8ToBytes(JSON.stringify(initialVault));
-      const { ciphertext: initialCiphertext, iv: initialIv } = await encryptAesGcm(initialJsonBytes, vek);
+      // Initial vault is stored by the server as revision 1.
+      const { ciphertext: initialCiphertext, iv: initialIv } = await encryptVaultForRevision(initialJsonBytes, vek, 1);
 
       // 5. Send registration payload via typed client
       await apiClient.auth.register({
@@ -326,7 +329,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { kek } = await deriveKeysFromMasterPassword(
         masterPass,
         user.kdfSalt,
-        user.kdfParams
+        assertSafeArgon2Params(user.kdfParams)
       );
 
       const vek = await unwrapVaultKey(user.encryptedVaultKey, kek);

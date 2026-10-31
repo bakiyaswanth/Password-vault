@@ -5,7 +5,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { memoryStore } from '../storage/memory-store';
-import { encryptAesGcm, decryptAesGcm } from '../crypto/aes';
+import { decryptVaultForRevision, encryptVaultForRevision, recordSeenRevision } from '../crypto/vault-binding';
 import { bytesToBase64, base64ToBytes, bytesToUtf8, utf8ToBytes } from '../crypto/encoding';
 import { createEncryptedBackup, restoreEncryptedBackup } from '../crypto/backup';
 import { computeItemFingerprint } from '../utils/importers';
@@ -234,7 +234,8 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     try {
       perfTracker.startMeasure('sync_encrypt_vault');
       const jsonBytes = utf8ToBytes(JSON.stringify(vault));
-      const { ciphertext, iv } = await encryptAesGcm(jsonBytes, vek);
+      // The server stores this save as currentRevision + 1; bind the ciphertext to that revision.
+      const { ciphertext, iv } = await encryptVaultForRevision(jsonBytes, vek, currentRevision + 1);
       perfTracker.endMeasure('sync_encrypt_vault');
 
       const resData = await apiClient.vault.sync({
@@ -243,7 +244,9 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         iv: bytesToBase64(iv),
       });
 
-      memoryStore.setVault(vault, resData.revision, memoryStore.getVaultId() || '');
+      const vaultId = memoryStore.getVaultId() || '';
+      recordSeenRevision(vaultId, resData.revision);
+      memoryStore.setVault(vault, resData.revision, vaultId);
       logger.info('Surakshit Vault synchronized successfully. Revision:', resData.revision);
       return true;
     } catch (err: unknown) {
@@ -256,11 +259,20 @@ export const VaultProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           try {
             const sIv = base64ToBytes(conflictDetails.iv);
             const sCipher = base64ToBytes(conflictDetails.encryptedPayload);
-            const decrypted = await decryptAesGcm(sCipher, vek, sIv);
+            const { plaintext: decrypted } = await decryptVaultForRevision(
+              sCipher,
+              vek,
+              sIv,
+              conflictDetails.currentRevision,
+              memoryStore.getVaultId() || ''
+            );
             const sVault: DecryptedVault = JSON.parse(bytesToUtf8(decrypted));
             serverItems = sVault.items;
-          } catch {
-            // Ignored
+          } catch (verifyErr) {
+            // Do not offer "keep server copy" for data that failed the integrity/freshness check.
+            setSyncError(verifyErr instanceof Error ? verifyErr.message : 'Server copy failed integrity check');
+            logger.error('Conflict payload rejected', verifyErr);
+            return false;
           }
         }
 

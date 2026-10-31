@@ -7,6 +7,8 @@ export interface Env {
   ENVIRONMENT?: string;
   CORS_ORIGIN?: string;
   SERVER_PEPPER?: string;
+  /** Secret used to HMAC stored auth verifiers. Required; set with `wrangler pages secret put VERIFIER_KEY`. */
+  VERIFIER_KEY?: string;
   SESSION_SECRET?: string;
 }
 

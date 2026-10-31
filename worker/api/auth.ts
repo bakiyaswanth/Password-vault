@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import { AuthService } from '../services/AuthService';
 import { requireAuth, extractToken } from '../middleware/auth';
 import { rateLimiter } from '../middleware/rate-limit';
+import { requireSecret } from '../services/verifier';
 import {
   validatePrelogin,
   validateRegistration,
@@ -16,13 +17,17 @@ import type { Env, Variables } from '../types';
 
 export const authRouter = new Hono<{ Bindings: Env; Variables: Variables }>();
 
+function secretsFrom(env: Env) {
+  return { verifierKey: requireSecret(env, 'VERIFIER_KEY'), serverPepper: requireSecret(env, 'SERVER_PEPPER') };
+}
+
 // 1. Pre-login: Fetch KDF salt and parameters
 authRouter.post('/prelogin', rateLimiter({ maxRequests: 20, windowSeconds: 60 }), async (c) => {
   const body = await c.req.json();
   const lookupHash = validatePrelogin(body);
 
-  const authService = new AuthService(c.env.DB);
-  const result = await authService.getPrelogin(lookupHash, c.env.SERVER_PEPPER);
+  const authService = new AuthService(c.env.DB, secretsFrom(c.env));
+  const result = await authService.getPrelogin(lookupHash);
 
   return c.json(result);
 });
@@ -32,7 +37,7 @@ authRouter.post('/register', rateLimiter({ maxRequests: 10, windowSeconds: 300 }
   const body = await c.req.json();
   const dto = validateRegistration(body);
 
-  const authService = new AuthService(c.env.DB);
+  const authService = new AuthService(c.env.DB, secretsFrom(c.env));
   const result = await authService.register(dto);
 
   return c.json(result, 201);
@@ -47,7 +52,7 @@ authRouter.post('/login', rateLimiter({ maxRequests: 10, windowSeconds: 60 }), a
   const userAgent = c.req.header('User-Agent') || null;
   const ip = c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || '127.0.0.1';
 
-  const authService = new AuthService(c.env.DB);
+  const authService = new AuthService(c.env.DB, secretsFrom(c.env));
   const { cookieHeader, response } = await authService.login(dto, { userAgent, ip, isProd });
 
   c.header('Set-Cookie', cookieHeader);
